@@ -2,51 +2,74 @@ import streamlit as st
 from openai import OpenAI
 import base64
 import fitz  # PyMuPDF
-from PIL import Image
 import io
 
-# הגדרות עיצוב RTL ועברית
+# הגדרת הדף
 st.set_page_config(page_title="ממיר כתב יד", layout="centered")
+
+# עיצוב מיוחד למסמך - נראה כמו דף נייר
 st.markdown("""
-    <style>
-    .main { direction: rtl; text-align: right; }
-    div.stButton > button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
-    .stTextArea textarea { direction: rtl; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+    .reportview-container { background: #f0f2f6; }
+    .paper-sheet {
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        direction: rtl;
+        text-align: right;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 18px;
+        line-height: 1.6;
+        white-space: pre-wrap; /* שומר על ירידות שורה */
+        color: #000000;
+    }
+    .stButton>button {
+        width: 100%;
+        background-color: #4CAF50;
+        color: white;
+        border-radius: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-st.title("📝 המרת כתב יד לטקסט")
-st.write("העלה קובץ וההמרה תתחיל באופן אוטומטי")
+st.title("📄 המרת כתב יד לטקסט")
+st.markdown("---")
 
-# מפתח API - הגדר בתפריט הצד
+# תפריט צד למפתח
 api_key = st.sidebar.text_input("מפתח OpenAI API:", type="password")
-
 if not api_key:
-    st.warning("👈 נא להזין מפתח API בתפריט הצד")
+    st.warning("נא להזין מפתח API בתפריט הצד")
     st.stop()
 
 client = OpenAI(api_key=api_key)
 
-# העלאת קובץ
-uploaded_file = st.file_uploader("בחר תמונה או PDF", type=["jpg", "jpeg", "png", "pdf"])
+uploaded_file = st.file_uploader("בחר קובץ (PDF או תמונה)", type=["jpg", "png", "jpeg", "pdf"])
 
-# המרה אוטומטית ברגע שיש קובץ
 if uploaded_file:
-    all_text = ""
-    with st.spinner('מפענח את הכתב... נא להמתין'):
+    # הצגת הודעת טעינה יפה
+    with st.status("מעבד את הקובץ...", expanded=True) as status:
         try:
-            images_to_process = []
+            full_text = ""
+            images = []
+            
+            # שלב 1: המרת הקובץ לתמונות
+            status.write("🔍 סורק את הדפים...")
             if uploaded_file.type == "application/pdf":
                 doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
                     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    images_to_process.append(pix.tobytes("jpg"))
+                    images.append(pix.tobytes("jpg"))
             else:
-                images_to_process.append(uploaded_file.read())
+                images.append(uploaded_file.read())
 
-            for index, img_data in enumerate(images_to_process):
-                base64_image = base64.b64encode(img_data).decode('utf-8')
+            # שלב 2: שליחה ל-AI
+            status.write("🤖 מפענח כתב יד...")
+            progress_bar = st.progress(0)
+            
+            for idx, img_data in enumerate(images):
+                base64_img = base64.b64encode(img_data).decode('utf-8')
                 
                 response = client.chat.completions.create(
                     model="gpt-4o",
@@ -54,25 +77,30 @@ if uploaded_file:
                         {
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": "transcribe the handwritten text in this image. if it is in Hebrew, write it in Hebrew accurately. return ONLY the text."},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                            ],
+                                {"type": "text", "text": "Transcribe the handwritten text exactly as it appears. Keep line breaks. Return ONLY the text."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
+                            ]
                         }
-                    ],
+                    ]
                 )
-                all_text += response.choices[0].message.content + "\n\n"
+                full_text += response.choices[0].message.content + "\n\n"
+                progress_bar.progress((idx + 1) / len(images))
 
-            st.success("הפענוח הסתיים!")
+            status.update(label="הפענוח הושלם!", state="complete", expanded=False)
+
+            # הצגת התוצאה כ"דף נייר"
+            st.subheader("תוצאה:")
+            st.markdown(f'<div class="paper-sheet">{full_text}</div>', unsafe_allow_html=True)
             
-            # הצגת הטקסט (ללא ה-id שגרם לשגיאה)
-            st.text_area("הטקסט שחולץ:", value=all_text, height=300)
+            st.write("") # רווח
             
-            # כפתורי פעולה
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button("📥 הורד קובץ TXT", all_text, file_name="output.txt")
-            with col2:
-                st.info("לחיצה ימנית על הטקסט לבחירה והעתקה")
+            # כפתור הורדה
+            st.download_button(
+                label="📥 הורד את הטקסט למחשב",
+                data=full_text,
+                file_name="result.txt",
+                mime="text/plain"
+            )
 
         except Exception as e:
-            st.error(f"שגיאה: {str(e)}")
+            st.error(f"התרחשה שגיאה: {e}")
