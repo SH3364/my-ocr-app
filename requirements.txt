@@ -1,4 +1,4 @@
 streamlit
-anthropic
+google-generativeai
 pymupdf
 pillow
