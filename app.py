@@ -1,14 +1,13 @@
 import streamlit as st
-import anthropic
-import base64
+import google.generativeai as genai
 import fitz  # PyMuPDF
 from PIL import Image
 import io
 
 # הגדרת הדף
-st.set_page_config(page_title="פענוח כתב יד - Claude", layout="centered")
+st.set_page_config(page_title="פענוח כתב יד - Gemini", layout="centered")
 
-# עיצוב נקי וקריא (כמו דף וורד)
+# עיצוב דף נקי
 st.markdown("""
 <style>
     .reportview-container { background: #f0f2f6; }
@@ -19,7 +18,7 @@ st.markdown("""
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         direction: rtl;
         text-align: right;
-        font-family: 'David', 'Frank Ruhl Libre', serif; /* פונט שמתאים למסמכים */
+        font-family: 'David', 'Frank Ruhl Libre', serif;
         font-size: 20px;
         line-height: 1.8;
         white-space: pre-wrap;
@@ -28,25 +27,26 @@ st.markdown("""
     }
     .stButton>button {
         width: 100%;
-        background-color: #d95f02; /* צבע כתום של אנתרופיק לזיהוי */
+        background-color: #4285F4; /* כחול גוגל */
         color: white;
         border-radius: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🔎 פענוח כתב יד (מנוע Claude 3.5)")
-st.caption("פתרון מקצועי המבוסס על Anthropic Sonnet - מומחה בקריאת טקסט")
+st.title("🔎 פענוח כתב יד (חינם - Gemini)")
+st.caption("פתרון מבוסס Google Gemini 1.5 Pro - ללא עלות")
 
-# תפריט צד למפתח
-api_key = st.sidebar.text_input("Anthropic API Key:", type="password", help="sk-ant...")
+# הזנת מפתח
+api_key = st.sidebar.text_input("Google API Key:", type="password", help="AIza...")
 
 if not api_key:
-    st.warning("👈 נא להזין את המפתח של Anthropic בתפריט הצד")
+    st.warning("👈 נא להזין מפתח Google API בתפריט הצד")
     st.stop()
 
-# יצירת הקליינט של קלוד
-client = anthropic.Anthropic(api_key=api_key)
+# הגדרת המודל של גוגל
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel('gemini-1.5-pro')
 
 uploaded_file = st.file_uploader("בחר קובץ (PDF או תמונה)", type=["jpg", "png", "jpeg", "pdf"])
 
@@ -62,45 +62,23 @@ if uploaded_file:
                 doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5)) # איכות גבוהה מאוד
-                    images.append(pix.tobytes("jpg"))
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5))
+                    img_data = pix.tobytes("png") # גוגל מעדיף PNG
+                    images.append(Image.open(io.BytesIO(img_data)))
             else:
-                images.append(uploaded_file.read())
+                images.append(Image.open(uploaded_file))
 
-            # שלב 2: שליחה ל-Claude
-            status.write("🧠 Claude מנתח את הכתב (זה מדויק יותר)...")
+            # שלב 2: שליחה לגוגל
+            status.write("🧠 Gemini מנתח את הכתב...")
             progress_bar = st.progress(0)
             
-            for idx, img_data in enumerate(images):
-                base64_img = base64.b64encode(img_data).decode('utf-8')
+            for idx, img in enumerate(images):
+                response = model.generate_content([
+                    "תעתיק את כתב היד בתמונה זו לטקסט מוקלד בצורה המדויקת ביותר. שים לב: זה כנראה כתב יד בעברית. אל תוסיף הקדמות, רק את הטקסט נטו. שמור על חלוקת השורות.",
+                    img
+                ])
                 
-                message = client.messages.create(
-                    model="claude-3-5-sonnet-20240620",
-                    max_tokens=4000,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "image/jpeg",
-                                        "data": base64_img
-                                    }
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "תעתיק את כתב היד בתמונה הזו לטקסט מוקלד. שים לב: זה כנראה כתב יד בעברית. אל תוסיף הקדמות או הערות, רק את הטקסט נטו. שמור על חלוקת השורות המקורית."
-                                }
-                            ]
-                        }
-                    ]
-                )
-                
-                # שליפת הטקסט מתוך התשובה של קלוד
-                text_content = message.content[0].text
-                full_text += text_content + "\n\n"
+                full_text += response.text + "\n\n"
                 progress_bar.progress((idx + 1) / len(images))
 
             status.update(label="הפענוח הושלם!", state="complete", expanded=False)
@@ -115,7 +93,7 @@ if uploaded_file:
             st.download_button(
                 label="📥 הורד קובץ TXT",
                 data=full_text,
-                file_name="claude_result.txt",
+                file_name="gemini_result.txt",
                 mime="text/plain"
             )
 
