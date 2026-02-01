@@ -27,7 +27,7 @@ st.markdown("""
     }
     .stButton>button {
         width: 100%;
-        background-color: #4285F4; /* כחול גוגל */
+        background-color: #4285F4;
         color: white;
         border-radius: 8px;
     }
@@ -35,7 +35,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🔎 פענוח כתב יד (חינם - Gemini)")
-st.caption("פתרון מבוסס Google Gemini 1.5 Pro - ללא עלות")
 
 # הזנת מפתח
 api_key = st.sidebar.text_input("Google API Key:", type="password", help="AIza...")
@@ -44,9 +43,12 @@ if not api_key:
     st.warning("👈 נא להזין מפתח Google API בתפריט הצד")
     st.stop()
 
-# הגדרת המודל של גוגל
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-1.5-pro')
+# הגדרת המודל - גרסה מעודכנת
+try:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+except Exception as e:
+    st.error(f"שגיאה בהגדרת המודל: {e}")
 
 uploaded_file = st.file_uploader("בחר קובץ (PDF או תמונה)", type=["jpg", "png", "jpeg", "pdf"])
 
@@ -63,7 +65,7 @@ if uploaded_file:
                 for i in range(len(doc)):
                     page = doc.load_page(i)
                     pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5))
-                    img_data = pix.tobytes("png") # גוגל מעדיף PNG
+                    img_data = pix.tobytes("png")
                     images.append(Image.open(io.BytesIO(img_data)))
             else:
                 images.append(Image.open(uploaded_file))
@@ -73,8 +75,9 @@ if uploaded_file:
             progress_bar = st.progress(0)
             
             for idx, img in enumerate(images):
+                # בקשה ספציפית לדיוק בעברית
                 response = model.generate_content([
-                    "תעתיק את כתב היד בתמונה זו לטקסט מוקלד בצורה המדויקת ביותר. שים לב: זה כנראה כתב יד בעברית. אל תוסיף הקדמות, רק את הטקסט נטו. שמור על חלוקת השורות.",
+                    "Please transcribe this handwritten text into digital text. The text is in Hebrew. Be as accurate as possible and maintain the original line breaks. Return ONLY the transcribed text.",
                     img
                 ])
                 
@@ -98,4 +101,4 @@ if uploaded_file:
             )
 
         except Exception as e:
-            st.error(f"שגיאה: {str(e)}")
+            st.error(f"שגיאה בתהליך: {str(e)}")
