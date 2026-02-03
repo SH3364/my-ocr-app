@@ -1,4 +1,1 @@
-streamlit
-google-generativeai
-pymupdf
-pillow
+
