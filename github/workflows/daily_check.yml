@@ -1,0 +1,35 @@
+name: Daily SIM Status Check
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # רץ כל יום ב-8 בבוקר
+  workflow_dispatch: # מאפשר להריץ ידנית בלחיצת כפתור
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run SIM check
+        env:
+          API_USER: ${{ secrets.API_USER }}
+          API_PASS: ${{ secrets.API_PASS }}
+        run: python main.py
+
+      - name: Commit and Push Report
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add reports/*.csv
+          git commit -m "Update Daily Report [skip ci]" || echo "No changes"
+          git push
