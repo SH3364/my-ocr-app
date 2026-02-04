@@ -67,20 +67,20 @@ def smart_check_logic(input_val, user, password):
     resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_to_check}, user, password)
     if not resp_info: return "שגיאת תקשורת", "אין תגובה", "No Response"
 
+    # חילוץ נתונים קריטיים
     status = parse_xml_value(resp_info, "Status")
     plan = parse_xml_value(resp_info, "RatePlan")
-    megabytes = parse_xml_value(resp_info, "MegabytesRemaining")
     
-    # --- התיקון הסופי ---
-    # אם השרת החזיר תוצאת GetIVRLineInformationResult, זה סימן שהקו קיים ופעיל במערכת ה-Prepaid
-    if "<GetIVRLineInformationResult>" in resp_info:
-        if not status: # אם אין סטטוס מפורש (כמו במקרה של 0 MB)
-            status = "Active"
-            plan = TARGET_PLAN
-    else:
-        return "לא נמצא", "אין נתונים על הסים בשרת", resp_info
+    # --- הלוגיקה החדשה והמדויקת ---
+    # אם אין סטטוס ואין שם תוכנית ב-XML, זה אומר שהסים קיים אבל הקו לא פעיל
+    if not status and not plan:
+        return "ללא קו פעיל", "הסים מזוהה אך לא נמצאה חבילה", resp_info
+    
+    # אם יש סטטוס או תוכנית, נציג אותם (או נשלים ל-Target Plan אם זה חסר אבל הסטטוס פעיל)
+    final_status = status if status else "Active"
+    final_plan = plan if plan else TARGET_PLAN
 
-    return status, (plan if plan else "לא ידוע"), resp_info
+    return final_status, final_plan, resp_info
 
 # --- ממשק משתמש ---
 
@@ -101,7 +101,8 @@ with tab1:
             with st.spinner("בודק..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
-                if s == "Active" or pl == TARGET_PLAN:
+                # הצלחה רק אם נמצא קו והוא תואם ליעד
+                if s != "ללא קו פעיל":
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
                 else:
