@@ -28,6 +28,7 @@ def save_db(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def call_soap_api(method, user, password, body_content):
+    """שליחת בקשת SOAP תקנית לפי התיעוד"""
     soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
@@ -65,8 +66,10 @@ def check_sim_logic(iccid, user, password):
 
     # שלב 2: בדיקת חבילות (באמצעות MDN אם נמצא, אחרת ICCID)
     target_value = mdn if mdn else iccid
+    # שימוש במתודת GetActivePackages כפי שמופיע בתיעוד
     pkg_res = call_soap_api("GetActivePackages", user, password, f"<MDN>{target_value}</MDN>")
     
+    # טיפול בשגיאת "No access to MDN"
     if "User does not have access to MDN" in pkg_res:
         if "<GetIVRLineInformationResult>" in res_info:
             return "שגיאת גישה לנתונים ⚠️", "הסים פעיל אך השרת חוסם גישה לפרטי החבילה", False, pkg_res
@@ -77,6 +80,7 @@ def check_sim_logic(iccid, user, password):
         root_pkg = ET.fromstring(pkg_res)
         for elem in root_pkg.iter():
             tag = elem.tag.split('}')[-1]
+            # חיפוש ב-MasterCategory כפי שמופיע בתיעוד התגובה
             if tag in ["MasterCategory", "Description", "PlanName"]:
                 if elem.text:
                     found_plan = elem.text.strip()
@@ -147,5 +151,11 @@ with tab3:
             bar.progress((i + 1) / len(db['sims']))
         
         res_df = pd.DataFrame(results)
-        st.table(res_df)
+
+        # פונקציית צביעה לטבלה
+        def color_status(val):
+            color = 'lightgreen' if 'תקין' in str(val) else 'lightcoral' if 'שונה' in str(val) or 'גישה' in str(val) else 'white'
+            return f'background-color: {color}'
+
+        st.dataframe(res_df.style.applymap(color_status, subset=['תוצאה']), use_container_width=True)
         st.download_button("📥 הורד דוח CSV", res_df.to_csv(index=False).encode('utf-8-sig'), "sim_report.csv")
