@@ -12,7 +12,6 @@ DB_FILE = "sim_database.json"
 SOAP_URL = "https://api.wirelessprovisioning.com/publish/MdnServices.asmx"
 TARGET_PLAN = "Prepaid Refills - Talk Only - 4G HD"
 
-# --- פונקציות ניהול נתונים ---
 def load_db():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
@@ -23,8 +22,10 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# --- לוגיקת ה-API ---
 def call_api(iccid, user, password):
+    if not user or not password:
+        return "שגיאה", "חסר שם משתמש/סיסמה בהגדרות", False
+
     soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
     <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
       <soap:Header>
@@ -47,112 +48,111 @@ def call_api(iccid, user, password):
     }
 
     try:
-        response = requests.post(SOAP_URL, data=soap_body, headers=headers, timeout=15)
-        root = ET.fromstring(response.text)
-        ns = {'ns': 'urn:telispire:MdnServices'}
+        response = requests.post(SOAP_URL, data=soap_body, headers=headers, timeout=20)
+        # הסרת ה-Namespace כדי להקל על החיפוש ב-XML
+        xml_content = response.text
+        root = ET.fromstring(xml_content)
         
-        count = root.find(".//ns:TotalCount", ns)
-        if count is not None and count.text == "0":
-            return "פנוי", "אין קו פעיל", True
+        # חיפוש TotalCount (כדי לדעת אם הסים פנוי)
+        total_count = "0"
+        for elem in root.iter():
+            if "TotalCount" in elem.tag:
+                total_count = elem.text
+                break
+        
+        if total_count == "0":
+            return "פנוי (Available)", "הסים טרם הופעל", True
 
-        plan = root.find(".//ns:PlanName", ns)
-        current_plan = plan.text if plan is not None else "לא ידוע"
+        # חיפוש שם התוכנית בתוך התוצאות
+        current_plan = "לא ידוע"
+        possible_tags = ["PlanName", "RatePlanName", "RatePlan"]
         
-        is_correct = (current_plan == TARGET_PLAN)
-        status = "תקין" if is_correct else "תוכנית לא תואמת"
+        for elem in root.iter():
+            if any(tag in elem.tag for tag in possible_tags):
+                if elem.text and len(elem.text) > 2:
+                    current_plan = elem.text
+                    break
+
+        is_correct = (current_plan.strip() == TARGET_PLAN)
+        status = "תקין - תוכנית נכונה" if is_correct else "תוכנית לא תואמת"
         return status, current_plan, is_correct
-    except Exception as e:
-        return "שגיאה", str(e), False
 
-# --- ממשק המשתמש (Streamlit) ---
-st.set_page_config(page_title="ניהול סימים", layout="wide")
+    except Exception as e:
+        return "שגיאת תקשורת", str(e), False
+
+# --- ממשק Streamlit ---
+st.set_page_config(page_title="בדיקת סימים WP", layout="wide")
 db = load_db()
 
-# תפריט צד להגדרות
 with st.sidebar:
-    st.header("⚙️ הגדרות מערכת")
-    user_api = st.text_input("שם משתמש API", db['auth'].get('user', ''))
-    pass_api = st.text_input("סיסמה API", db['auth'].get('pass', ''), type="password")
+    st.header("⚙️ הגדרות API")
+    u = st.text_input("שם משתמש API", db['auth'].get('user', ''))
+    p = st.text_input("סיסמה API", db['auth'].get('pass', ''), type="password")
     if st.button("שמור הגדרות"):
-        db['auth'] = {"user": user_api, "pass": pass_api}
+        db['auth'] = {"user": u, "pass": p}
         save_db(db)
-        st.success("ההגדרות נשמרו!")
+        st.success("נשמר!")
 
-st.title("📱 מערכת מעקב סימים - Wireless Provisioning")
+st.title("📱 מערכת מעקב סימים Wireless Provisioning")
 
-# טאבים לחלוקת האתר
-tab1, tab2, tab3 = st.tabs(["ניהול רשימה", "בדיקה בזמן אמת", "דוחות"])
+tab1, tab2, tab3 = st.tabs(["🔍 בדיקה בזמן אמת", "📋 ניהול רשימה", "📂 דוחות"])
 
 with tab1:
-    st.subheader("➕ הוספת סים חדש")
-    c1, c2 = st.columns(2)
-    with c1:
-        new_iccid = st.text_input("מספר סים (ICCID)")
-    with c2:
-        new_shop = st.text_input("שם חנות")
+    st.subheader("בדיקת סים מיידית")
+    quick_iccid = st.text_input("הכנס ICCID לבדיקה:")
+    if st.button("בדוק עכשיו 🚀"):
+        with st.spinner("מתחבר לשרת..."):
+            status, plan, ok = call_api(quick_iccid, db['auth']['user'], db['auth']['pass'])
+            if "פנוי" in status:
+                st.info(f"**סטטוס:** {status} | **מידע:** {plan}")
+            elif ok:
+                st.success(f"**סטטוס:** {status} | **תוכנית:** {plan}")
+            else:
+                st.error(f"**סטטוס:** {status} | **תוכנית קיימת:** {plan}")
+
+with tab2:
+    st.subheader("הוספת סימים למעקב קבוע")
+    col1, col2 = st.columns(2)
+    with col1:
+        new_iccid = st.text_input("ICCID")
+    with col2:
+        new_shop = st.text_input("חנות")
     
-    if st.button("הוסף לרשימה"):
-        if new_iccid and new_shop:
-            db['sims'].append({
-                "iccid": new_iccid,
-                "shop": new_shop,
-                "date_added": datetime.now().strftime("%d/%m/%Y %H:%M")
-            })
+    if st.button("הוסף למאגר"):
+        if new_iccid:
+            db['sims'].append({"iccid": new_iccid, "shop": new_shop, "added": datetime.now().strftime("%d/%m/%Y")})
             save_db(db)
-            st.success(f"הסים {new_iccid} נוסף בהצלחה!")
             st.rerun()
 
-    st.subheader("📋 רשימת הסימים הקיימת")
     if db['sims']:
-        df_sims = pd.DataFrame(db['sims'])
-        st.dataframe(df_sims, use_container_width=True)
-        if st.button("נקה את כל הרשימה"):
+        st.write("---")
+        df = pd.DataFrame(db['sims'])
+        st.table(df)
+        if st.button("מחק הכל"):
             db['sims'] = []
             save_db(db)
             st.rerun()
-    else:
-        st.info("אין סימים ברשימה.")
-
-with tab2:
-    st.subheader("🔍 בדיקת סים ספציפי (בזמן אמת)")
-    check_iccid = st.text_input("הכנס ICCID לבדיקה מיידית")
-    if st.button("בדוק עכשיו"):
-        if not db['auth']['user']:
-            st.error("חובה להגדיר שם משתמש וסיסמה בתפריט הצד!")
-        else:
-            with st.spinner("מבצע בדיקה מול השרת..."):
-                status, plan, ok = call_api(check_iccid, db['auth']['user'], db['auth']['pass'])
-                if ok:
-                    st.success(f"תוצאה: {status} | תוכנית: {plan}")
-                else:
-                    st.error(f"תוצאה: {status} | תוכנית: {plan}")
 
 with tab3:
-    st.subheader("📅 הרצת בדיקה יומית ידנית")
-    if st.button("הפעל בדיקה לכל הרשימה"):
-        results = []
-        progress = st.progress(0)
-        for i, sim in enumerate(db['sims']):
-            status, plan, ok = call_api(sim['iccid'], db['auth']['user'], db['auth']['pass'])
-            results.append({
-                "תאריך": datetime.now().strftime("%d/%m/%Y"),
-                "ICCID": sim['iccid'],
-                "חנות": sim['shop'],
-                "סטטוס": status,
-                "תוכנית": plan
-            })
-            progress.progress((i + 1) / len(db['sims']))
-            time.sleep(0.5) # מניעת עומס
-        
-        # שמירת דוח
-        df_report = pd.DataFrame(results)
-        report_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        df_report.to_csv(report_name, index=False, encoding="utf-8-sig")
-        st.success(f"הבדיקה הסתיימה! נוצר דוח: {report_name}")
-        
-        st.download_button(
-            label="📥 הורד דוח עכשיו (Excel/CSV)",
-            data=df_report.to_csv(index=False).encode('utf-8-sig'),
-            file_name=report_name,
-            mime='text/csv'
-        )
+    st.subheader("בדיקה יומית ודוחות")
+    if st.button("הרץ בדיקה על כל הרשימה"):
+        if not db['sims']:
+            st.warning("הרשימה ריקה!")
+        else:
+            all_res = []
+            bar = st.progress(0)
+            for i, sim in enumerate(db['sims']):
+                status, plan, ok = call_api(sim['iccid'], db['auth']['user'], db['auth']['pass'])
+                all_res.append({
+                    "תאריך": datetime.now().strftime("%d/%m/%Y"),
+                    "חנות": sim['shop'],
+                    "ICCID": sim['iccid'],
+                    "תוצאה": status,
+                    "תוכנית": plan
+                })
+                bar.progress((i + 1) / len(db['sims']))
+                time.sleep(0.3)
+            
+            final_df = pd.DataFrame(all_res)
+            st.dataframe(final_df)
+            st.download_button("הורד דוח CSV", final_df.to_csv(index=False).encode('utf-8-sig'), "report.csv", "text/csv")
