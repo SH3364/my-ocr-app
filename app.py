@@ -17,18 +17,17 @@ if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
 if not os.path.exists(DB_FILE):
     pd.DataFrame(columns=['תאריך הוספה', 'ICCID', 'שם חנות']).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
-# --- תיקון השגיאה כאן: הורדתי את direction='rtl' ---
+# הגדרת עמוד (ללא הפרמטר השגוי RTL)
 st.set_page_config(page_title='מערכת בדיקת סימים', layout='wide')
 
-# הוספת תמיכה ב-RTL (ימין לשמאל) בצורה תקנית דרך CSS
+# עיצוב לימין-שמאל באמצעות CSS
 st.markdown("""
 <style>
     .stApp {
         direction: rtl;
         text-align: right;
     }
-    /* התאמה ספציפית לכותרות וטקסטים */
-    h1, h2, h3, p, div, span, input, label {
+    h1, h2, h3, p, div, span, input, label, button {
         direction: rtl; 
         text-align: right; 
     }
@@ -133,9 +132,10 @@ st.title("📡 מערכת ניהול ובדיקת סימים")
 
 with st.sidebar:
     st.header("🔐 הגדרות התחברות")
-    # שימוש ב-key לשמירת הנתונים בזיכרון
-    st.text_input("שם משתמש API", key="api_user")
-    st.text_input("סיסמה", type="password", key="api_pass")
+    # קריאת הערכים ישירות למשתנים כדי למנוע את באג הלחיצה המהירה
+    current_user = st.text_input("שם משתמש API", key="api_user")
+    current_pass = st.text_input("סיסמה", type="password", key="api_pass")
+    
     st.divider()
     st.info("המערכת מנסה כעת להמיר אוטומטית ICCID ל-MDN.")
 
@@ -147,16 +147,14 @@ with tab1:
     check_val = st.text_input("הכנס ICCID או MDN לבדיקה")
     
     if st.button("בצע בדיקה חכמה"):
-        u = st.session_state.get("api_user", "")
-        p = st.session_state.get("api_pass", "")
-        
-        if not u or not p:
+        # שימוש במשתנים שקראנו הרגע מהסיידבר
+        if not current_user or not current_pass:
             st.error("❌ חובה להזין שם משתמש וסיסמה בתפריט הצד!")
         elif not check_val:
             st.warning("נא להזין מספר לבדיקה")
         else:
             with st.spinner("מבצע בדיקה מול השרת..."):
-                final_status, final_plan, raw_log = smart_check_logic(check_val, u, p)
+                final_status, final_plan, raw_log = smart_check_logic(check_val, current_user, current_pass)
                 
                 col1, col2 = st.columns(2)
                 is_success = (final_status == 'Available' or final_plan == TARGET_PLAN)
@@ -197,10 +195,7 @@ with tab2:
     st.divider()
     
     if st.button("🚀 הרץ בדיקה על כל הרשימה"):
-        u = st.session_state.get("api_user", "")
-        p = st.session_state.get("api_pass", "")
-        
-        if not u or not p:
+        if not current_user or not current_pass:
             st.error("נא להתחבר בצד ימין")
         else:
             df = pd.read_csv(DB_FILE)
@@ -210,7 +205,7 @@ with tab2:
                 results = []
                 my_bar = st.progress(0)
                 for i, row in df.iterrows():
-                    stat, plan, _ = smart_check_logic(row['ICCID'], u, p)
+                    stat, plan, _ = smart_check_logic(row['ICCID'], current_user, current_pass)
                     res_text = "✅ תקין" if (stat == 'Available' or plan == TARGET_PLAN) else "❌ לבדוק"
                     
                     results.append({
