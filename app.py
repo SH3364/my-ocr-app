@@ -10,6 +10,7 @@ import time
 # --- הגדרות ליבה ---
 DB_FILE = "sim_database.json"
 TARGET_PLAN = "Prepaid Refills - Talk Only - 4G HD"
+# הכתובת היציבה ביותר שהוכחה כעובדת בשרת שלך
 API_URL = "https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx"
 
 def load_db():
@@ -24,15 +25,15 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-def call_soap_api(method, user, password, value):
-    """פונקציה לשליחת בקשות SOAP עם ה-Headers המדויקים"""
+def soap_request(method, user, password, extra_xml):
+    """פונקציה גנרית לשליחת בקשות SOAP עם ה-Headers המדויקים"""
     soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <{method} xmlns="urn:telispire:MdnServices">
       <username>{user}</username>
       <password>{password}</password>
-      <mdn>{value}</mdn>
+      {extra_xml}
     </{method}>
   </soap:Body>
 </soap:Envelope>"""
@@ -48,37 +49,53 @@ def call_soap_api(method, user, password, value):
     except Exception as e:
         return f"<error>{str(e)}</error>"
 
-def check_sim_logic(iccid, user, password):
-    """לוגיקה משופרת: מזהה קו פעיל גם ללא נתונים ובודק תוכנית"""
+def check_sim_smart_flow(iccid, user, password):
+    """תהליך אוטומטי: 1. מציאת MDN לפי ICCID | 2. בדיקת חבילות לפי ה-MDN שנמצא"""
     
-    # שלב 1: בדיקה ראשונית (האם הקו קיים במערכת?)
-    res_ivr = call_soap_api("GetIVRLineInformation", user, password, iccid)
+    # שלב א': חיפוש פרטי המנוי כדי לחלץ את מספר הטלפון (MDN)
+    # נשתמש ב-GetIVRLineInformation שראינו שאינו מחזיר שגיאת "לא מזוהה"
+    search_res = soap_request("GetIVRLineInformation", user, password, f"<mdn>{iccid}</mdn>")
     
-    # אם ה-XML ששלחת מופיע, זה אומר שיש קו!
-    if "<GetIVRLineInformationResult>" in res_ivr:
-        # עכשיו ננסה להביא את שם התוכנית המדויק
-        res_pkg = call_soap_api("GetActivePackages", user, password, iccid)
-        
-        found_plan = "לא זוהתה חבילה"
+    # ניסיון לחלץ MDN מכל תגית אפשרית ב-XML שחזר
+    mdn = None
+    if "<soap:Fault>" not in search_res:
         try:
-            root = ET.fromstring(res_pkg)
+            root = ET.fromstring(search_res)
             for elem in root.iter():
                 tag = elem.tag.split('}')[-1]
-                if tag in ["MasterCategory", "Description", "PlanName"]:
-                    if elem.text:
-                        found_plan = elem.text.strip()
-                        break
+                if tag == "MDN" and elem.text and len(elem.text) >= 10:
+                    mdn = elem.text.strip()
+                    break
         except: pass
 
-        is_correct = (found_plan == TARGET_PLAN)
-        status = "תקין ✅" if is_correct else "תוכנית לא תואמת ❌"
-        return status, found_plan, is_correct, res_pkg
+    # אם השלב הראשון נכשל במציאת MDN, ננסה להשתמש ב-ICCID ישירות (למקרה שהשרת מאפשר)
+    target_value = mdn if mdn else iccid
+    
+    # שלב ב': בדיקת חבילות פעילות (GetActivePackages)
+    pkg_res = soap_request("GetActivePackages", user, password, f"<MDN>{target_value}</MDN>")
+    
+    if "User does not have access to MDN" in pkg_res:
+        if not mdn:
+            return "פנוי (Available)", "הסים טרם הופעל או שלא נמצא מנוי משויך", True, pkg_res
+        return "שגיאת הרשאה", "אין גישה למספר הטלפון שזוהה", False, pkg_res
 
-    # אם השרת מחזיר שגיאת גישה - כנראה הסים באמת פנוי/לא הופעל
-    if "User does not have access" in res_ivr or "not found" in res_ivr.lower():
-        return "פנוי (Available)", "הסים טרם הופעל במערכת", True, res_ivr
+    # ניתוח שם התוכנית
+    found_plan = "לא מזוהה"
+    try:
+        root_pkg = ET.fromstring(pkg_res)
+        for elem in root_pkg.iter():
+            tag = elem.tag.split('}')[-1]
+            if tag in ["MasterCategory", "Description", "PlanName"]:
+                if elem.text:
+                    found_plan = elem.text.strip()
+                    break
+    except: pass
 
-    return "שגיאה", "השרת החזיר תשובה לא מזוהה", False, res_ivr
+    is_correct = (found_plan.lower() == TARGET_PLAN.lower())
+    status = "תקין ✅" if is_correct else "תוכנית שונה ❌"
+    
+    info = f"מספר טלפון: {mdn if mdn else 'לא זוהה'} | תוכנית: {found_plan}"
+    return status, info, is_correct, pkg_res
 
 # --- ממשק המשתמש (Streamlit) ---
 st.set_page_config(page_title="מערכת ניהול סימים", layout="wide")
@@ -90,29 +107,29 @@ with st.sidebar:
     p = st.text_input("סיסמה", db['auth'].get('pass', ''), type="password")
     if st.button("שמור הגדרות"):
         db['auth'] = {"user": u, "pass": p}; save_db(db)
-        st.success("נשמר!")
+        st.success("הגדרות נשמרו!")
 
 st.title("📱 מערכת מעקב סימים - Wireless Provisioning")
 
 tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מיידית", "📋 ניהול רשימה", "📊 דוחות"])
 
 with tab1:
+    st.subheader("בדיקת סים בזמן אמת (לפי ICCID)")
     val = st.text_input("הכנס ICCID לבדיקה:")
     if st.button("בדוק עכשיו 🚀"):
-        with st.spinner("מתחבר לשרת..."):
-            status, plan, ok, raw = check_sim_logic(val, db['auth']['user'], db['auth']['pass'])
-            if ok and "פנוי" not in status: st.success(f"**סטטוס:** {status} | **תוכנית:** {plan}")
-            elif "פנוי" in status: st.info(f"**סטטוס:** {status} | {plan}")
-            else: st.error(f"**סטטוס:** {status} | **מידע:** {plan}")
-            
-            with st.expander("ראה נתונים גולמיים מהשרת"):
+        with st.spinner("מחלץ מספר טלפון ובודק חבילה..."):
+            status, info, ok, raw = check_sim_smart_flow(val, db['auth']['user'], db['auth']['pass'])
+            if ok: st.success(f"**סטטוס:** {status}")
+            else: st.error(f"**סטטוס:** {status}")
+            st.info(info)
+            with st.expander("ראה נתונים גולמיים (Debug)"):
                 st.code(raw, language="xml")
 
 with tab2:
-    st.subheader("הוספת סימים למעקב")
+    st.subheader("ניהול רשימת מעקב")
     c1, c2 = st.columns(2)
     with c1: nid = st.text_input("ICCID")
-    with c2: nshop = st.text_input("שם חנות")
+    with c2: nshop = st.text_input("חנות")
     if st.button("הוסף למאגר"):
         if nid:
             db['sims'].append({"iccid": nid, "shop": nshop, "added": datetime.now().strftime("%d/%m/%Y")})
@@ -125,14 +142,16 @@ with tab2:
 
 with tab3:
     if st.button("הפעל בדיקה לכל הרשימה"):
-        results = []
-        bar = st.progress(0)
-        for i, sim in enumerate(db['sims']):
-            res, plan, ok, _ = check_sim_logic(sim['iccid'], db['auth']['user'], db['auth']['pass'])
-            results.append({"תאריך": datetime.now().strftime("%d/%m/%Y"), "חנות": sim['shop'], "ICCID": sim['iccid'], "תוצאה": res, "תוכנית": plan})
-            bar.progress((i + 1) / len(db['sims']))
-            time.sleep(0.5)
-        
-        res_df = pd.DataFrame(results)
-        st.dataframe(res_df)
-        st.download_button("📥 הורד דוח CSV", res_df.to_csv(index=False).encode('utf-8-sig'), "sim_report.csv")
+        if not db['sims']: st.warning("הרשימה ריקה")
+        else:
+            results = []
+            bar = st.progress(0)
+            for i, sim in enumerate(db['sims']):
+                res, info, ok, _ = check_sim_smart_flow(sim['iccid'], db['auth']['user'], db['auth']['pass'])
+                results.append({"תאריך": datetime.now().strftime("%d/%m/%Y"), "חנות": sim['shop'], "ICCID": sim['iccid'], "תוצאה": res, "מידע": info})
+                bar.progress((i + 1) / len(db['sims']))
+                time.sleep(0.5)
+            
+            res_df = pd.DataFrame(results)
+            st.dataframe(res_df)
+            st.download_button("📥 הורד דוח CSV", res_df.to_csv(index=False).encode('utf-8-sig'), "sim_report.csv")
