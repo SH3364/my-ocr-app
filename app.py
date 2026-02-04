@@ -17,6 +17,7 @@ if not os.path.exists(DB_FILE):
 
 st.set_page_config(page_title='מערכת ניהול ובדיקת סימים', layout='wide')
 
+# עיצוב RTL
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -55,36 +56,37 @@ def soap_request(method, params, username, password):
 
 def smart_check_logic(input_val, user, password):
     input_val = str(input_val).strip()
-    mdn_found = None
-    debug_log = ""
-
-    # שלב 1: ניסיון חילוץ MDN מה-ICCID
+    mdn_to_check = None
+    
+    # שלב 1: המרת ICCID ל-MDN
     if len(input_val) > 15:
         resp_mdn = soap_request("GetMDNByICCID", {"iccid": input_val}, user, password)
         if resp_mdn:
-            mdn_found = parse_xml_value(resp_mdn, "GetMDNByICCIDResult") or parse_xml_value(resp_mdn, "mdn")
+            mdn_to_check = parse_xml_value(resp_mdn, "GetMDNByICCIDResult")
     else:
-        mdn_found = input_val
+        mdn_to_check = input_val
 
-    # שלב 2: בדיקת פרטי קו
-    if not mdn_found or mdn_found.lower() == "none" or mdn_found == "":
-        return "ללא קו", "לא נמצא מספר טלפון משויך לסים", "No MDN assigned"
+    # אם לא נמצא MDN בכלל - הסים ריק בוודאות
+    if not mdn_to_check or mdn_to_check.lower() == "none":
+        return "ללא קו", "לא נמצא מספר טלפון משויך ל-ICCID", "No MDN assigned"
 
-    resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_found}, user, password)
+    # שלב 2: בדיקת פרטי חבילה ב-IVR
+    resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_to_check}, user, password)
     if not resp_info: return "שגיאת תקשורת", "אין תגובה מהשרת", "No Response"
 
     status = parse_xml_value(resp_info, "Status")
     plan = parse_xml_value(resp_info, "RatePlan")
 
-    # --- התיקון הקריטי ---
-    # אם קיבלנו תשובה מה-IVR ויש לנו MDN ביד, זה אומר שיש קו פעיל.
-    # אנחנו נגדיר אותו כפעיל גם אם ה-XML מכיל רק אפסים.
+    # --- התיקון המרכזי ---
+    # בגלל חבילת Talk Only, ה-XML תמיד יחזיר 0 מגהבייט.
+    # אם הגענו לשלב הזה ויש לנו MDN, סימן שהקו קיים במערכת.
     if "<GetIVRLineInformationResult>" in resp_info:
-        final_status = status if status else "Active"
+        # אם יש MDN אבל השרת לא החזיר שם תוכנית מפורש, נציג את תוכנית היעד כברירת מחדל
+        final_status = status if status else "Active (Detected)"
         final_plan = plan if plan else TARGET_PLAN
         return final_status, final_plan, resp_info
 
-    return "לא מזוהה", "השרת לא החזיר נתונים תקינים", resp_info
+    return "לא מזוהה", "השרת החזיר תשובה לא מוכרת", resp_info
 
 # --- ממשק משתמש ---
 
@@ -92,52 +94,63 @@ st.title("📡 מערכת ניהול ובדיקת סימים")
 
 with st.sidebar:
     st.header("🔐 הגדרות התחברות")
-    u = st.text_input("שם משתמש API", key="api_user")
+    u = st.text_input("שם משתמש API", value="Prepaid refills", key="api_user")
     p = st.text_input("סיסמה", type="password", key="api_pass")
 
 tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מהירה", "📋 ניהול רשימה", "📂 היסטוריה"])
 
 with tab1:
-    check_val = st.text_input("הכנס ICCID לבדיקה", key="manual_check")
+    check_val = st.text_input("הכנס ICCID או MDN לבדיקה")
     if st.button("בצע בדיקה חכמה"):
-        if not u or not p: st.error("הזן פרטים בסיידבר")
+        if not u or not p: st.error("חובה להזין שם משתמש וסיסמה בתפריט הצד!")
         else:
-            with st.spinner("בודק מול השרת..."):
+            with st.spinner("בודק נתונים..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
-                if s not in ["ללא קו", "לא מזוהה"]:
+                if s not in ["ללא קו", "לא מזוהה", "שגיאת תקשורת"]:
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
                 else:
                     c1.error(f"**סטטוס:** {s}")
                     c2.error(f"**תוכנית:** {pl}")
-                with st.expander("לוג טכני"): st.code(raw, language="xml")
+                with st.expander("לוג טכני (XML מלא)"):
+                    st.code(raw, language="xml")
 
 with tab2:
-    st.subheader("ניהול מאגר סימים")
+    st.subheader("ניהול רשימת סימים")
     with st.form("add_sim"):
-        c_a, c_b = st.columns(2)
-        iccid = c_a.text_input("ICCID")
-        store = c_b.text_input("חנות")
-        if st.form_submit_button("שמור"):
-            if iccid and store:
+        col_iccid, col_store = st.columns(2)
+        new_iccid = col_iccid.text_input("ICCID")
+        new_store = col_store.text_input("שם חנות")
+        if st.form_submit_button("הוסף למאגר"):
+            if new_iccid and new_store:
                 df = pd.read_csv(DB_FILE)
-                new_data = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': str(iccid), 'שם חנות': store}
-                pd.concat([df, pd.DataFrame([new_data])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-                st.success("נשמר!")
+                new_row = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': str(new_iccid), 'שם חנות': new_store}
+                pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
+                st.success(f"ICCID {new_iccid} נוסף בהצלחה!")
 
-    if st.button("🚀 הרץ בדיקה על כל המאגר"):
+    st.divider()
+    if st.button("🚀 הרץ בדיקה קולקטיבית על כל הרשימה"):
         df_list = pd.read_csv(DB_FILE)
-        if not df_list.empty:
+        if df_list.empty: st.warning("הרשימה ריקה")
+        else:
             results = []
-            for _, row in df_list.iterrows():
+            progress = st.progress(0)
+            for i, row in df_list.iterrows():
                 s, pl, _ = smart_check_logic(row['ICCID'], u, p)
                 results.append({'ICCID': row['ICCID'], 'חנות': row['שם חנות'], 'סטטוס': s, 'תוכנית': pl})
-            st.table(pd.DataFrame(results))
+                progress.progress((i + 1) / len(df_list))
+            
+            res_df = pd.DataFrame(results)
+            st.table(res_df)
+            # שמירה להיסטוריה
+            fname = f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+            res_df.to_csv(os.path.join(REPORTS_DIR, fname), index=False, encoding='utf-8-sig')
 
 with tab3:
     st.subheader("היסטוריית דוחות")
     files = [f for f in os.listdir(REPORTS_DIR) if f.endswith('.csv')]
     if files:
-        sel = st.selectbox("בחר דוח:", sorted(files, reverse=True))
-        st.dataframe(pd.read_csv(os.path.join(REPORTS_DIR, sel)), use_container_width=True)
+        selected_file = st.selectbox("בחר דוח לצפייה:", sorted(files, reverse=True))
+        st.dataframe(pd.read_csv(os.path.join(REPORTS_DIR, selected_file)), use_container_width=True)
+    else: st.info("אין דוחות שמורים עדיין")
