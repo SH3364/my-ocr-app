@@ -89,7 +89,7 @@ def check_sim_logic(iccid, user, password):
                     break
     except: pass
 
-    is_correct = (TARGET_PLAN.lower() in found_plan.lower())
+    is_correct = (found_plan.lower() == TARGET_PLAN.lower())
     status = "תקין ✅" if is_correct else "תוכנית שונה ❌"
     
     info = f"מספר טלפון: {mdn if mdn else 'לא חולץ'} | תוכנית: {found_plan}"
