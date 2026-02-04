@@ -15,9 +15,9 @@ if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
 if not os.path.exists(DB_FILE):
     pd.DataFrame(columns=['תאריך הוספה', 'ICCID', 'שם חנות']).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
-# הגדרת עמוד בסיסית - הוספת direction='rtl' גורמת לשגיאה בחלק מהגרסאות, לכן נשתמש ב-CSS
 st.set_page_config(page_title='מערכת ניהול ובדיקת סימים', layout='wide')
 
+# עיצוב RTL ויישור טקסט
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -31,7 +31,7 @@ st.markdown("""
 def parse_xml_value(xml_text, target_tag):
     if not xml_text: return None
     try:
-        # ניקוי Namespace לחיפוש פשוט
+        # הסרת Namespace כדי להקל על החילוץ
         xml_text = xml_text.replace('xmlns="urn:telispire:MdnServices"', '')
         root = ET.fromstring(xml_text)
         for elem in root.iter():
@@ -61,7 +61,7 @@ def smart_check_logic(input_val, user, password):
     input_val = str(input_val).strip()
     mdn_to_check = None
     
-    # שלב 1: חילוץ MDN (מספר טלפון) מה-ICCID
+    # שלב 1: המרת ICCID ל-MDN
     if len(input_val) > 15:
         resp_mdn = soap_request("GetMDNByICCID", {"iccid": input_val}, user, password)
         if resp_mdn:
@@ -69,26 +69,27 @@ def smart_check_logic(input_val, user, password):
     else:
         mdn_to_check = input_val
 
-    if not mdn_to_check or mdn_to_check.lower() == "none":
+    # אם לא נמצא MDN בכלל - הסים ריק
+    if not mdn_to_check or mdn_to_check.lower() == "none" or mdn_to_check == "":
         return "ללא קו", "לא נמצא מספר טלפון משויך ל-ICCID", "No MDN assigned"
 
-    # שלב 2: בדיקת פרטי קו ב-IVR
+    # שלב 2: בדיקת פרטי קו
     resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_to_check}, user, password)
     if not resp_info: return "שגיאת תקשורת", "אין תגובה מהשרת", "No Response"
 
-    # --- התיקון המרכזי כאן ---
-    # אם ה-XML מכיל את התוצאה, סימן שהקו קיים במערכת (גם אם הוא 0 מגה-בייט)
+    # --- התיקון המכריע ---
+    # אם התגובה מכילה את תגית התוצאה, סימן שהקו קיים במערכת (גם אם הנתונים בפנים מאופסים)
     if "<GetIVRLineInformationResult>" in resp_info:
         status = parse_xml_value(resp_info, "Status")
         plan = parse_xml_value(resp_info, "RatePlan")
         
-        # בחבילת Talk Only הסטטוס והתוכנית לעיתים חוזרים ריקים ב-XML
-        final_status = status if status else "Active"
+        # אם יש MDN אבל הנתונים ריקים (כמו ב-XML ששלחת), נסיק שזה קו פעיל ללא דאטה
+        final_status = status if status else "Active (Talk Only)"
         final_plan = plan if plan else TARGET_PLAN
         
         return final_status, final_plan, resp_info
 
-    return "לא מזוהה", "הסים מזוהה אך לא הוחזרו נתוני קו", resp_info
+    return "לא מזוהה", "השרת זיהה מספר אך לא החזיר נתוני קו", resp_info
 
 # --- ממשק משתמש ---
 
@@ -99,53 +100,51 @@ with st.sidebar:
     u = st.text_input("שם משתמש", value="Prepaid refills", key="api_user")
     p = st.text_input("סיסמה", type="password", key="api_pass")
 
-tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מיידית", "📋 ניהול רשימה", "📂 היסטוריה"])
+tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מהירה", "📋 ניהול רשימה", "📂 היסטוריה"])
 
 with tab1:
-    st.subheader("בדיקת סים בודד")
-    check_val = st.text_input("הכנס ICCID או MDN")
+    check_val = st.text_input("הכנס ICCID או MDN לבדיקה")
     if st.button("בצע בדיקה חכמה"):
-        if not u or not p: 
-            st.error("חובה להזין פרטי התחברות בתפריט הצד")
+        if not u or not p:
+            st.error("הזן פרטי API בתפריט הצד")
         else:
-            with st.spinner("מתחבר לשרת..."):
+            with st.spinner("בודק מול השרת..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
-                if s not in ["ללא קו", "שגיאת תקשורת"]:
+                if s not in ["ללא קו", "לא מזוהה", "שגיאת תקשורת"]:
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
                 else:
                     c1.error(f"**סטטוס:** {s}")
                     c2.error(f"**תוכנית:** {pl}")
-                
-                with st.expander("לוג טכני (XML)"):
+                with st.expander("נתונים טכניים (XML)"):
                     st.code(raw, language="xml")
 
 with tab2:
-    st.subheader("ניהול מאגר")
-    with st.form("add_form"):
-        col1, col2 = st.columns(2)
-        iccid_input = col1.text_input("ICCID להוספה")
-        store_input = col2.text_input("שם חנות")
+    st.subheader("הוספת מספרים למאגר")
+    with st.form("add_sim"):
+        ca, cb = st.columns(2)
+        iccid = ca.text_input("ICCID")
+        store = cb.text_input("שם חנות")
         if st.form_submit_button("שמור במאגר"):
-            if iccid_input and store_input:
+            if iccid and store:
                 df = pd.read_csv(DB_FILE)
-                new_row = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': iccid_input, 'שם חנות': store_input}
-                pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-                st.success("הסים נוסף למאגר")
-    
+                new_data = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': str(iccid), 'שם חנות': store}
+                pd.concat([df, pd.DataFrame([new_data])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
+                st.success("נשמר בהצלחה!")
+
     if st.button("🚀 הרץ בדיקה על כל המאגר"):
-        df_db = pd.read_csv(DB_FILE)
-        if not df_db.empty:
+        df_list = pd.read_csv(DB_FILE)
+        if not df_list.empty:
             results = []
-            for _, row in df_db.iterrows():
+            for _, row in df_list.iterrows():
                 s, pl, _ = smart_check_logic(row['ICCID'], u, p)
                 results.append({'ICCID': row['ICCID'], 'חנות': row['שם חנות'], 'סטטוס': s, 'תוכנית': pl})
             st.table(pd.DataFrame(results))
 
 with tab3:
-    st.subheader("דוחות שמורים")
+    st.subheader("דוחות קודמים")
     files = [f for f in os.listdir(REPORTS_DIR) if f.endswith('.csv')]
     if files:
-        selected = st.selectbox("בחר דוח:", sorted(files, reverse=True))
-        st.dataframe(pd.read_csv(os.path.join(REPORTS_DIR, selected)), use_container_width=True)
+        sel = st.selectbox("בחר דוח:", sorted(files, reverse=True))
+        st.dataframe(pd.read_csv(os.path.join(REPORTS_DIR, sel)), use_container_width=True)
