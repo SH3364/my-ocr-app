@@ -11,14 +11,12 @@ DB_FILE = 'sim_database.csv'
 BASE_URL = 'https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx'
 TARGET_PLAN = 'Prepaid Refills - Talk Only - 4G HD'
 
-# יצירת תשתיות אם לא קיימות
 if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
 if not os.path.exists(DB_FILE):
     pd.DataFrame(columns=['תאריך הוספה', 'ICCID', 'שם חנות']).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
 st.set_page_config(page_title='מערכת ניהול ובדיקת סימים', layout='wide')
 
-# עיצוב RTL
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -26,7 +24,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- פונקציות ליבה ---
+# --- פונקציות עזר ---
 
 def parse_xml_value(xml_text, target_tag):
     if not xml_text: return None
@@ -67,23 +65,22 @@ def smart_check_logic(input_val, user, password):
             if extracted_mdn: mdn_to_check = extracted_mdn
 
     resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_to_check}, user, password)
-    if not resp_info: return "שגיאת תקשורת", "אין תגובה מהשרת", "No Response"
+    if not resp_info: return "שגיאת תקשורת", "אין תגובה", "No Response"
 
     status = parse_xml_value(resp_info, "Status")
     plan = parse_xml_value(resp_info, "RatePlan")
     megabytes = parse_xml_value(resp_info, "MegabytesRemaining")
     
-    # זיהוי חכם לפי ה-XML שסיפקת
-    if not status and megabytes is not None:
-        status = "Active"
-        plan = TARGET_PLAN 
-    
+    # --- התיקון: בדיקה אם יש יתרה ממשית או סטטוס פעיל ---
+    # אם הסטטוס חסר והיתרה היא 0, זה אומר שאין קו פעיל על הסים
     if not status:
-        if "<GetIVRLineInformationResult>" in resp_info:
-             return "זוהה (ללא קו)", "סים קיים אך לא נמצאה תוכנית", resp_info
-        return "לא נמצא", "אין נתונים", resp_info
+        if megabytes is not None and float(megabytes) > 0:
+            status = "Active"
+            plan = TARGET_PLAN
+        else:
+            return "זוהה (ללא קו)", "הסים קיים במערכת אך אין עליו חבילה פעילה", resp_info
 
-    return status, plan, resp_info
+    return status, (plan if plan else "לא ידוע"), resp_info
 
 # --- ממשק משתמש ---
 
@@ -96,24 +93,22 @@ with st.sidebar:
 
 tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מהירה", "📋 ניהול רשימה", "📂 היסטוריה"])
 
-# טאב 1: בדיקה מהירה
 with tab1:
-    check_val = st.text_input("הכנס ICCID או MDN לבדיקה")
+    check_val = st.text_input("הכנס ICCID או MDN לבדיקה", key="manual_check")
     if st.button("בצע בדיקה חכמה"):
-        if not u or not p: st.error("הזן פרטי התחברות בסיידבר")
+        if not u or not p: st.error("הזן פרטים בסיידבר")
         else:
             with st.spinner("בודק..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
-                if pl == TARGET_PLAN:
+                if s == "Active" or pl == TARGET_PLAN:
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
                 else:
                     c1.error(f"**סטטוס:** {s}")
                     c2.error(f"**תוכנית:** {pl}")
-                with st.expander("לוג טכני"): st.text(raw)
+                with st.expander("לוג טכני"): st.code(raw, language="xml")
 
-# טאב 2: ניהול רשימה (הוחזר למקומו)
 with tab2:
     st.subheader("הוספת מספרים למאגר")
     with st.form("add_sim"):
@@ -129,7 +124,7 @@ with tab2:
             else: st.warning("מלא את כל השדות")
 
     st.divider()
-    if st.button("🚀 הרץ בדיקה קבוצתית על כל הרשימה"):
+    if st.button("🚀 הרץ בדיקה קבוצתית"):
         if not u or not p: st.error("הזן פרטים בסיידבר")
         else:
             df_list = pd.read_csv(DB_FILE)
@@ -141,24 +136,13 @@ with tab2:
                     s, pl, _ = smart_check_logic(row['ICCID'], u, p)
                     results.append({'ICCID': row['ICCID'], 'חנות': row['שם חנות'], 'סטטוס': s, 'תוכנית': pl})
                     bar.progress((i + 1) / len(df_list))
-                
-                res_df = pd.DataFrame(results)
-                st.table(res_df)
-                # שמירה אוטומטית להיסטוריה
+                st.table(pd.DataFrame(results))
                 fname = f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-                res_df.to_csv(os.path.join(REPORTS_DIR, fname), index=False, encoding='utf-8-sig')
-                st.success("הדוח נוצר ונשמר בהיסטוריה")
+                pd.DataFrame(results).to_csv(os.path.join(REPORTS_DIR, fname), index=False, encoding='utf-8-sig')
 
-# טאב 3: היסטוריה (הוחזר למקומו)
 with tab3:
     st.subheader("דוחות קודמים")
     files = [f for f in os.listdir(REPORTS_DIR) if f.endswith('.csv')]
     if files:
-        selected_file = st.selectbox("בחר דוח לצפייה:", sorted(files, reverse=True))
-        file_path = os.path.join(REPORTS_DIR, selected_file)
-        hist_df = pd.read_csv(file_path)
-        st.dataframe(hist_df, use_container_width=True)
-        with open(file_path, "rb") as f:
-            st.download_button("הורד קובץ CSV", f, file_name=selected_file)
-    else:
-        st.info("עדיין אין דוחות שמורים")
+        selected_file = st.selectbox("בחר דוח:", sorted(files, reverse=True))
+        st.dataframe(pd.read_csv(os.path.join(REPORTS_DIR, selected_file)), use_container_width=True)
