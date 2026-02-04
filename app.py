@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import time
 
-# --- הגדרות מערכת ---
+# --- הגדרות ליבה ---
 DB_FILE = "sim_database.json"
 TARGET_PLAN = "Prepaid Refills - Talk Only - 4G HD"
 API_URL = "https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx"
@@ -28,7 +28,7 @@ def save_db(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def call_soap_api(method, user, password, body_content):
-    """שליחת בקשת SOAP תקנית לפי התיעוד"""
+    """שליחת בקשת SOAP תקנית לשרת"""
     soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
@@ -51,7 +51,8 @@ def call_soap_api(method, user, password, body_content):
         return f"<error>{str(e)}</error>"
 
 def check_sim_logic(iccid, user, password):
-    # שלב 1: ניסיון חילוץ MDN (מספר טלפון) מה-ICCID באמצעות IVR
+    """לוגיקה דו-שלבית: חילוץ מספר טלפון ואז בדיקת חבילה"""
+    # שלב 1: ניסיון חילוץ MDN (מספר טלפון) מה-ICCID
     res_info = call_soap_api("GetIVRLineInformation", user, password, f"<mdn>{iccid}</mdn>")
     
     mdn = None
@@ -64,15 +65,15 @@ def check_sim_logic(iccid, user, password):
                 break
     except: pass
 
-    # שלב 2: בדיקת חבילות (באמצעות MDN אם נמצא, אחרת ננסה ICCID)
+    # שלב 2: בדיקת חבילות (באמצעות MDN שנמצא, או ICCID אם לא נמצא)
     target_value = mdn if mdn else iccid
     pkg_res = call_soap_api("GetActivePackages", user, password, f"<MDN>{target_value}</MDN>")
     
-    # זיהוי סים פעיל ללא גישה מול סים פנוי באמת
+    # טיפול בשגיאת "No access" - מזהה סים פעיל ללא הרשאה מול סים פנוי
     if "User does not have access to MDN" in pkg_res:
         if "<GetIVRLineInformationResult>" in res_info:
             return "שגיאת גישה לנתונים ⚠️", "הסים פעיל אך השרת חוסם גישה לפרטי החבילה", False, pkg_res
-        return "פנוי (Available)", "הסים לא נמצא במערכת", True, pkg_res
+        return "פנוי (Available)", "הסים לא נמצא במערכת המנויים", True, pkg_res
 
     found_plan = "לא זוהתה חבילה"
     try:
@@ -90,7 +91,7 @@ def check_sim_logic(iccid, user, password):
     info = f"טלפון: {mdn if mdn else 'N/A'} | תוכנית: {found_plan}"
     return status, info, is_correct, pkg_res
 
-# --- ממשק Streamlit ---
+# --- ממשק המשתמש (Streamlit) ---
 st.set_page_config(page_title="ניהול סימים", layout="wide")
 db = load_db()
 
