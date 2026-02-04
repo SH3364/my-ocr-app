@@ -17,7 +17,23 @@ if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
 if not os.path.exists(DB_FILE):
     pd.DataFrame(columns=['תאריך הוספה', 'ICCID', 'שם חנות']).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
-st.set_page_config(page_title='מערכת בדיקת סימים', layout='wide', direction='rtl')
+# --- תיקון השגיאה כאן: הורדתי את direction='rtl' ---
+st.set_page_config(page_title='מערכת בדיקת סימים', layout='wide')
+
+# הוספת תמיכה ב-RTL (ימין לשמאל) בצורה תקנית דרך CSS
+st.markdown("""
+<style>
+    .stApp {
+        direction: rtl;
+        text-align: right;
+    }
+    /* התאמה ספציפית לכותרות וטקסטים */
+    h1, h2, h3, p, div, span, input, label {
+        direction: rtl; 
+        text-align: right; 
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- פונקציות עזר (API) ---
 
@@ -26,9 +42,7 @@ def parse_xml_value(xml_text, target_tag):
     if not xml_text: return None
     try:
         root = ET.fromstring(xml_text)
-        # חיפוש מעמיק בכל העץ
         for elem in root.iter():
-            # מנקים את ה-Namespace (החלק שבסוגריים מסולסלים)
             tag_clean = elem.tag.split('}')[-1]
             if tag_clean == target_tag:
                 return elem.text
@@ -38,7 +52,6 @@ def parse_xml_value(xml_text, target_tag):
 
 def soap_request(method, params, username, password):
     """שולח בקשת SOAP לשרת"""
-    # בניית הפרמטרים הפנימיים
     param_str = ""
     for k, v in params.items():
         param_str += f"<{k}>{v}</{k}>"
@@ -81,8 +94,6 @@ def smart_check_logic(input_val, user, password):
 
     # שלב 1: אם זה נראה כמו ICCID (ארוך מ-15 תווים), ננסה להמיר ל-MDN
     if len(input_val) > 15:
-        # ננסה לקרוא לפונקציה שאמורה להחזיר MDN לפי ICCID
-        # הערה: שם הפונקציה GetMDNByICCID הוא ניחוש מושכל. אם לא קיים, השרת יחזיר שגיאה ונתקדם.
         resp_mdn = soap_request("GetMDNByICCID", {"iccid": input_val}, user, password)
         
         if resp_mdn:
@@ -96,7 +107,6 @@ def smart_check_logic(input_val, user, password):
             debug_log += "⚠️ פונקציית המרת ICCID נכשלה או לא קיימת.\n"
 
     # שלב 2: בדיקת פרטי הקו (IVR)
-    # כאן אנחנו שולחים את ה-MDN (אם מצאנו) או את ה-ICCID המקורי (אם לא מצאנו)
     resp_info = soap_request("GetIVRLineInformation", {"mdn": mdn_to_check}, user, password)
     
     if not resp_info:
@@ -105,13 +115,11 @@ def smart_check_logic(input_val, user, password):
     status = parse_xml_value(resp_info, "Status")
     plan = parse_xml_value(resp_info, "RatePlan")
 
-    # אם עדיין אין סטטוס, נבדוק אם יש שגיאה בתוך ה-XML
     if not status:
         error_msg = parse_xml_value(resp_info, "faultstring")
         if error_msg:
             return "שגיאת API", error_msg, debug_log + "\n" + resp_info
         
-        # בדיקה אם חזר XML תקין אבל ריק מנתוני Wireless
         if "<GetIVRLineInformationResult>" in resp_info and "<Wireless>" not in resp_info:
              return "זוהה (ללא קו)", "הסים קיים אך לא משויך לקו", debug_log + "\n" + resp_info
 
@@ -123,18 +131,14 @@ def smart_check_logic(input_val, user, password):
 
 st.title("📡 מערכת ניהול ובדיקת סימים")
 
-# סרגל צד עם שמירת מצב (Session State)
 with st.sidebar:
     st.header("🔐 הגדרות התחברות")
-    
-    # שימוש ב-key מבטיח שהערכים יישמרו בזיכרון של Streamlit
-    user_input = st.text_input("שם משתמש API", key="api_user")
-    pass_input = st.text_input("סיסמה", type="password", key="api_pass")
-    
+    # שימוש ב-key לשמירת הנתונים בזיכרון
+    st.text_input("שם משתמש API", key="api_user")
+    st.text_input("סיסמה", type="password", key="api_pass")
     st.divider()
-    st.info("המערכת מנסה כעת להמיר אוטומטית ICCID ל-MDN כדי לקבל נתונים מלאים.")
+    st.info("המערכת מנסה כעת להמיר אוטומטית ICCID ל-MDN.")
 
-# טאבים
 tab1, tab2, tab3 = st.tabs(["🔍 בדיקה מהירה", "📋 ניהול רשימה", "📂 היסטוריה"])
 
 # --- טאב 1: בדיקה מהירה ---
@@ -143,7 +147,6 @@ with tab1:
     check_val = st.text_input("הכנס ICCID או MDN לבדיקה")
     
     if st.button("בצע בדיקה חכמה"):
-        # שליפת הנתונים מהזיכרון במקום מהמשתנים המקומיים
         u = st.session_state.get("api_user", "")
         p = st.session_state.get("api_pass", "")
         
@@ -155,10 +158,7 @@ with tab1:
             with st.spinner("מבצע בדיקה מול השרת..."):
                 final_status, final_plan, raw_log = smart_check_logic(check_val, u, p)
                 
-                # תצוגה
                 col1, col2 = st.columns(2)
-                
-                # בדיקה אם התוצאה תקינה
                 is_success = (final_status == 'Available' or final_plan == TARGET_PLAN)
                 
                 if is_success:
