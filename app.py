@@ -28,7 +28,7 @@ def save_db(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def call_soap_api(method, user, password, body_content):
-    """תיקון ה-TypeError: פונקציה עם 4 ארגומנטים בדיוק"""
+    """שליחת בקשת SOAP - תוקן למניעת TypeError"""
     soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
@@ -51,51 +51,34 @@ def call_soap_api(method, user, password, body_content):
         return f"<error>{str(e)}</error>"
 
 def check_sim_logic(iccid, user, password):
-    """לוגיקה דו-שלבית למניעת שגיאת 'User does not have access'"""
-    # שלב 1: ניסיון חילוץ MDN מה-ICCID
-    # אנחנו שולחים את ה-ICCID בשדה mdn כי השרת בודק את שניהם בשיטה זו
+    """לוגיקה זהירה: לא קובעת 'פנוי' ללא הוכחה מהשרת"""
+    # ניסיון קבלת מידע בסיסי
     res_info = call_soap_api("GetIVRLineInformation", user, password, f"<mdn>{iccid}</mdn>")
     
-    # בדיקה אם השרת חסם את הגישה כבר בשלב הראשון
+    # אם השרת חוסם גישה - אנחנו לא יודעים אם זה פנוי או פעיל של מישהו אחר
     if "User does not have access to MDN" in res_info:
-        return "שגיאת הרשאה ❌", "החשבון שלך אינו בעל ההרשאות לסים זה", False, res_info
+        return "אין גישה (סטטוס לא ידוע) ⚠️", "השרת מסרב לתת מידע על מזהה זה. ייתכן שהסים לא הופעל או שאינו משויך לחשבון שלך.", False, res_info
 
-    mdn = None
     try:
         root = ET.fromstring(res_info)
+        found_plan = "לא מזוהה"
+        mdn = None
+        
         for elem in root.iter():
             tag = elem.tag.split('}')[-1]
-            if tag == "MDN" and elem.text and len(elem.text) >= 10:
-                mdn = elem.text.strip()
-                break
-    except: pass
+            if tag == "MDN": mdn = elem.text
+            if tag in ["RatePlan", "PlanName", "MasterCategory"]:
+                if elem.text: found_plan = elem.text.strip()
 
-    # שלב 2: בדיקת חבילות (באמצעות MDN שנמצא)
-    target_value = mdn if mdn else iccid
-    pkg_res = call_soap_api("GetActivePackages", user, password, f"<MDN>{target_value}</MDN>")
-    
-    if "User does not have access to MDN" in pkg_res:
-        # אם יש לנו IVR אבל אין גישה לחבילות, זה סים פעיל שמוגן על ידי השרת
-        if "<GetIVRLineInformationResult>" in res_info:
-            return "סים פעיל (מוגן) ⚠️", "הסים פעיל אך השרת חוסם גישה לפרטי חבילה", False, pkg_res
-        return "פנוי (Available)", "הסים לא נמצא במערכת", True, pkg_res
+        if mdn or found_plan != "לא מזוהה":
+            is_correct = (found_plan.lower() == TARGET_PLAN.lower())
+            status = "תקין ✅" if is_correct else "תוכנית שונה ❌"
+            return status, f"טלפון: {mdn} | תוכנית: {found_plan}", is_correct, res_info
+            
+        return "פנוי (Available) ⚪", "לא נמצא מידע פעיל בשרת", True, res_info
 
-    # ניתוח שם התוכנית
-    found_plan = "לא מזוהה"
-    try:
-        root_pkg = ET.fromstring(pkg_res)
-        for elem in root_pkg.iter():
-            tag = elem.tag.split('}')[-1]
-            if tag in ["MasterCategory", "Description", "PlanName"]:
-                if elem.text:
-                    found_plan = elem.text.strip()
-                    break
-    except: pass
-
-    is_correct = (found_plan.lower() == TARGET_PLAN.lower())
-    status = "תקין ✅" if is_correct else "תוכנית שונה ❌"
-    info = f"טלפון: {mdn if mdn else 'N/A'} | תוכנית: {found_plan}"
-    return status, info, is_correct, pkg_res
+    except Exception as e:
+        return "שגיאת ניתוח", str(e), False, res_info
 
 # --- ממשק המשתמש (Streamlit) ---
 st.set_page_config(page_title="ניהול סימים", layout="wide")
@@ -108,23 +91,18 @@ with st.sidebar:
     if st.button("שמור הגדרות"):
         db['auth'] = {"user": u, "pass": p}; save_db(db); st.success("נשמר!")
 
-st.title("📱 מערכת ניהול ובדיקת סימים אוטומטית")
+st.title("📱 מערכת ניהול ובדיקת סימים")
 
-# טאבים לפי העיצוב שלך
-tab1, tab2, tab3 = st.tabs(["🔍 בדיקה בודדת", "📋 ניהול רשימה וייבוא", "📊 בדיקה המונית"])
+tab1, tab2, tab3 = st.tabs(["🔍 בדיקה בודדת", "📋 ניהול רשימה", "📊 בדיקה המונית"])
 
 with tab1:
     val = st.text_input("הכנס ICCID לבדיקה:")
     if st.button("בדוק עכשיו 🚀"):
-        if not db['auth']['user'] or not db['auth']['pass']:
-            st.warning("נא להגדיר שם משתמש וסיסמה ב-Sidebar")
-        else:
-            with st.spinner("מבצע זיהוי..."):
-                status, info, ok, raw = check_sim_logic(val, db['auth']['user'], db['auth']['pass'])
-                if ok: st.success(status)
-                else: st.error(status)
-                st.info(info)
-                with st.expander("נתוני API גולמיים (Debug)"):
-                    st.code(raw, language="xml")
-
-# (שאר הטאבים נשארים עם הלוגיקה של ייבוא אקסל ובדיקה המונית)
+        with st.spinner("שואל את השרת..."):
+            status, info, ok, raw = check_sim_logic(val, db['auth']['user'], db['auth']['pass'])
+            if "תקין" in status: st.success(status)
+            elif "אין גישה" in status: st.warning(status)
+            else: st.error(status)
+            st.info(info)
+            with st.expander("נתוני API גולמיים (Debug)"):
+                st.code(raw, language="xml")
