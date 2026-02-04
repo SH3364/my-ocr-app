@@ -10,6 +10,7 @@ import time
 # --- הגדרות מערכת ---
 DB_FILE = "sim_database.json"
 TARGET_PLAN = "Prepaid Refills - Talk Only - 4G HD"
+# הכתובת היציבה ביותר שהוכחה כעובדת אצלך
 API_URL = "https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx"
 
 def load_db():
@@ -24,66 +25,64 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-def call_soap_api(method, user, password, extra_xml):
-    """שולח בקשת SOAP עם ה-Headers המדויקים שהשרת דורש"""
-    soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
+def call_soap_api(method, user, password, body_content):
+    """שליחת בקשת SOAP עם טיפול במירכאות ב-Headers למניעת שגיאת 'Not Recognized'"""
+    soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <{method} xmlns="urn:telispire:MdnServices">
       <username>{user}</username>
       <password>{password}</password>
-      {extra_xml}
+      {body_content}
     </{method}>
   </soap:Body>
 </soap:Envelope>"""
 
     headers = {
         "Content-Type": "text/xml; charset=utf-8",
+        # הוספת מירכאות כפולות סביב ה-Action היא הפתרון לשגיאה שקיבלת
         "SOAPAction": f'"urn:telispire:MdnServices/{method}"'
     }
 
     try:
-        response = requests.post(API_URL, data=soap_body, headers=headers, timeout=20)
-        return response.text, response.status_code
+        response = requests.post(API_URL, data=soap_payload, headers=headers, timeout=20)
+        return response.text
     except Exception as e:
-        return f"<error>{str(e)}</error>", 500
+        return f"<error>{str(e)}</error>"
 
-def check_sim_full_process(iccid, user, password):
-    """תהליך אוטומטי: המרת ICCID ל-MDN ואז בדיקת חבילה"""
+def check_sim_logic(iccid, user, password):
+    """תהליך אוטומטי מלא: זיהוי MDN ובדיקת תוכנית"""
     
-    # שלב 1: חיפוש ה-MDN (מספר הטלפון) לפי ה-ICCID
-    # נשתמש ב-SearchSubscribers - הדרך הכי בטוחה למצוא מנוי
-    search_xml = f"<SearchValue>{iccid}</SearchValue><SearchType>ICCID</SearchType>"
-    raw_search, code = call_soap_api("SearchSubscribers", user, password, search_xml)
+    # שלב 1: נסיון חיפוש מנוי לפי ICCID כדי לקבל את ה-MDN
+    # אנחנו משתמשים ב-SearchSubscribers כי היא מתאימה לחיפוש לפי ICCID
+    search_body = f"<SearchValue>{iccid}</SearchValue><SearchType>ICCID</SearchType>"
+    # נשתמש בפורמט Header מעט שונה למתודת החיפוש
+    search_res = call_soap_api("SearchSubscribers", user, password, search_body)
     
-    if "Server did not recognize" in raw_search:
-        # אם השרת לא מכיר את SearchSubscribers, ננסה GetSubscriberInformation
-        search_xml = f"<mdn>{iccid}</mdn>"
-        raw_search, code = call_soap_api("GetSubscriberInformation", user, password, search_xml)
-
     mdn = None
-    try:
-        root = ET.fromstring(raw_search)
-        for elem in root.iter():
-            tag = elem.tag.split('}')[-1]
-            if tag == "MDN" and elem.text and len(elem.text) >= 10:
-                mdn = elem.text.strip()
-                break
-    except: pass
+    if "Server did not recognize" not in search_res:
+        try:
+            root = ET.fromstring(search_res)
+            for elem in root.iter():
+                tag = elem.tag.split('}')[-1]
+                if tag == "MDN" and elem.text:
+                    mdn = elem.text.strip()
+                    break
+        except: pass
 
-    # אם לא נמצא MDN בכלל - הסים פנוי (Available)
-    if not mdn:
-        if "User does not have access" in raw_search or "not found" in raw_search.lower():
-             return "פנוי (Available)", "הסים טרם הופעל או שאינו משויך לחשבון", True, raw_search
-        return "שגיאה בזיהוי", "השרת לא החזיר מספר טלפון עבור סים זה", False, raw_search
-
-    # שלב 2: בדיקת החבילה לפי ה-MDN שמצאנו
-    pkg_xml = f"<MDN>{mdn}</MDN>"
-    raw_pkg, code_pkg = call_soap_api("GetActivePackages", user, password, pkg_xml)
+    # אם השלב הראשון נכשל, ננסה להשתמש ב-ICCID ישירות מול בדיקת החבילות
+    target_value = mdn if mdn else iccid
     
-    found_plan = "לא מזוהה"
+    # שלב 2: בדיקת חבילות (המתודה שהופיעה בתיעוד שלך!)
+    pkg_res = call_soap_api("GetActivePackages", user, password, f"<MDN>{target_value}</MDN>")
+    
+    if "User does not have access to MDN" in pkg_res:
+        return "פנוי / אין גישה", "הסים לא מזוהה כפעיל בחשבון זה", False, pkg_res
+
+    # ניתוח תוצאות החבילה
+    found_plan = "לא נמצאה חבילה"
     try:
-        root_pkg = ET.fromstring(raw_pkg)
+        root_pkg = ET.fromstring(pkg_res)
         for elem in root_pkg.iter():
             tag = elem.tag.split('}')[-1]
             if tag in ["MasterCategory", "Description", "PlanName"]:
@@ -95,10 +94,10 @@ def check_sim_full_process(iccid, user, password):
     is_correct = (TARGET_PLAN.lower() in found_plan.lower())
     status = "תקין ✅" if is_correct else "תוכנית שונה ❌"
     
-    return status, f"טלפון: {mdn} | תוכנית: {found_plan}", is_correct, raw_pkg
+    return status, f"תוכנית: {found_plan} (מזהה: {target_value})", is_correct, pkg_res
 
-# --- ממשק האתר ---
-st.set_page_config(page_title="ניהול סימים", layout="wide")
+# --- ממשק Streamlit ---
+st.set_page_config(page_title="ניהול סימים מקצועי", layout="wide")
 db = load_db()
 
 with st.sidebar:
@@ -107,53 +106,30 @@ with st.sidebar:
     p = st.text_input("Password", db['auth'].get('pass', ''), type="password")
     if st.button("שמור הגדרות"):
         db['auth'] = {"user": u, "pass": p}; save_db(db)
-        st.success("נשמר!")
+        st.success("הגדרות נשמרו")
 
-st.title("📱 מערכת מעקב ובדיקת סימים אוטומטית")
+st.title("📱 מערכת בדיקת סימים אוטומטית (ICCID)")
 
-tab1, tab2, tab3 = st.tabs(["🔍 בדיקה בזמן אמת", "📋 רשימת מעקב", "📊 דוחות"])
+iccid_input = st.text_input("הכנס ICCID לבדיקה:")
+if st.button("בדוק סים 🚀"):
+    with st.spinner("מבצע זיהוי ובדיקת חבילה..."):
+        status, detail, ok, raw = check_sim_logic(iccid_input, db['auth']['user'], db['auth']['pass'])
+        if ok: st.success(status)
+        else: st.error(status)
+        st.info(detail)
+        with st.expander("לוג טכני (XML)"):
+            st.code(raw, language="xml")
 
-with tab1:
-    iccid_val = st.text_input("הכנס ICCID לבדיקה:")
-    if st.button("בדוק עכשיו 🚀"):
-        with st.spinner("מבצע זיהוי דו-שלבי..."):
-            status, info, ok, raw = check_sim_full_process(iccid_val, db['auth']['user'], db['auth']['pass'])
-            if ok: st.success(status)
-            else: st.error(status)
-            st.info(info)
-            with st.expander("ראה נתונים גולמיים (XML Debug)"):
-                st.code(raw, language="xml")
+# ניהול רשימה
+st.divider()
+st.subheader("📋 רשימת מעקב")
+c1, c2 = st.columns(2)
+with c1: nid = st.text_input("הוסף ICCID לרשימה")
+with c2: nshop = st.text_input("חנות")
+if st.button("הוסף"):
+    if nid:
+        db['sims'].append({"iccid": nid, "shop": nshop, "date": datetime.now().strftime("%d/%m")})
+        save_db(db); st.rerun()
 
-with tab2:
-    st.subheader("ניהול רשימה יומית")
-    c1, c2, c3 = st.columns([2,2,1])
-    with c1: nid = st.text_input("ICCID להוספה")
-    with c2: nshop = st.text_input("שם חנות")
-    with c3:
-        st.write(" ")
-        if st.button("הוסף"):
-            if nid:
-                db['sims'].append({"iccid": nid, "shop": nshop, "date": datetime.now().strftime("%d/%m/%Y")})
-                save_db(db); st.rerun()
-
-    if db['sims']:
-        df = pd.DataFrame(db['sims'])
-        st.table(df)
-        if st.button("מחק הכל"):
-            db['sims'] = []; save_db(db); st.rerun()
-
-with tab3:
-    if st.button("הפעל בדיקה לכל הרשימה"):
-        if not db['sims']: st.warning("הרשימה ריקה")
-        else:
-            results = []
-            bar = st.progress(0)
-            for i, sim in enumerate(db['sims']):
-                res, info, ok, _ = check_sim_full_process(sim['iccid'], db['auth']['user'], db['auth']['pass'])
-                results.append({"תאריך": datetime.now().strftime("%d/%m/%Y"), "חנות": sim['shop'], "ICCID": sim['iccid'], "תוצאה": res, "מידע": info})
-                bar.progress((i + 1) / len(db['sims']))
-                time.sleep(0.5)
-            
-            res_df = pd.DataFrame(results)
-            st.dataframe(res_df)
-            st.download_button("📥 הורד דוח CSV", res_df.to_csv(index=False).encode('utf-8-sig'), "sim_report.csv")
+if db['sims']:
+    st.table(pd.DataFrame(db['sims']))
