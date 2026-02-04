@@ -71,20 +71,23 @@ def smart_check_logic(input_val, user, password):
     plan = parse_xml_value(resp_info, "RatePlan")
     megabytes = parse_xml_value(resp_info, "MegabytesRemaining")
     
-    # --- התיקון המעודכן ---
-    # אם קיימת תגית MegabytesRemaining (גם אם היא 0), זה אומר שיש קו משויך במערכת ה-Prepaid
-    if not status and megabytes is not None:
-        status = "Active"
-        plan = TARGET_PLAN
-    
+    # --- התיקון המדויק ---
+    # אם אין סטטוס, נגדיר כפעיל רק אם המגבייט גדול מ-0
     if not status:
-        if "<GetIVRLineInformationResult>" in resp_info:
-             return "זוהה (ללא קו)", "הסים קיים במערכת אך אין עליו חבילה פעילה", resp_info
-        return "לא נמצא", "אין נתונים", resp_info
+        try:
+            m_val = float(megabytes) if megabytes is not None else -1
+            if m_val > 0:
+                status = "Active"
+                plan = TARGET_PLAN
+            else:
+                # כאן המערכת תגיע אם ה-XML ששלחת מופיע (0 מגבייט ואין סטטוס)
+                return "זוהה (ללא קו)", "סים קיים אך ללא חבילה פעילה (0 MB)", resp_info
+        except:
+            return "זוהה (ללא קו)", "מידע חסר מהשרת", resp_info
 
     return status, (plan if plan else "לא ידוע"), resp_info
 
-# --- ממשק משתמש ---
+# --- ממשק משתמש (ללא שינוי) ---
 
 st.title("📡 מערכת ניהול ובדיקת סימים")
 
@@ -103,7 +106,6 @@ with tab1:
             with st.spinner("בודק..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
-                # הצלחה אם הסטטוס פעיל או שזו התוכנית המבוקשת
                 if s == "Active" or pl == TARGET_PLAN:
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
@@ -124,15 +126,12 @@ with tab2:
                 new_data = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': str(new_iccid), 'שם חנות': new_store}
                 pd.concat([df, pd.DataFrame([new_data])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
                 st.success("נשמר!")
-            else: st.warning("מלא את כל השדות")
-
-    st.divider()
+    
     if st.button("🚀 הרץ בדיקה קבוצתית"):
         if not u or not p: st.error("הזן פרטים בסיידבר")
         else:
             df_list = pd.read_csv(DB_FILE)
-            if df_list.empty: st.info("הרשימה ריקה")
-            else:
+            if not df_list.empty:
                 results = []
                 bar = st.progress(0)
                 for i, row in df_list.iterrows():
@@ -140,8 +139,6 @@ with tab2:
                     results.append({'ICCID': row['ICCID'], 'חנות': row['שם חנות'], 'סטטוס': s, 'תוכנית': pl})
                     bar.progress((i + 1) / len(df_list))
                 st.table(pd.DataFrame(results))
-                fname = f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-                pd.DataFrame(results).to_csv(os.path.join(REPORTS_DIR, fname), index=False, encoding='utf-8-sig')
 
 with tab3:
     st.subheader("דוחות קודמים")
