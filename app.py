@@ -71,23 +71,18 @@ def smart_check_logic(input_val, user, password):
     plan = parse_xml_value(resp_info, "RatePlan")
     megabytes = parse_xml_value(resp_info, "MegabytesRemaining")
     
-    # --- התיקון המדויק ---
-    # אם אין סטטוס, נגדיר כפעיל רק אם המגבייט גדול מ-0
-    if not status:
-        try:
-            m_val = float(megabytes) if megabytes is not None else -1
-            if m_val > 0:
-                status = "Active"
-                plan = TARGET_PLAN
-            else:
-                # כאן המערכת תגיע אם ה-XML ששלחת מופיע (0 מגבייט ואין סטטוס)
-                return "זוהה (ללא קו)", "סים קיים אך ללא חבילה פעילה (0 MB)", resp_info
-        except:
-            return "זוהה (ללא קו)", "מידע חסר מהשרת", resp_info
+    # --- התיקון הסופי ---
+    # אם השרת החזיר תוצאת GetIVRLineInformationResult, זה סימן שהקו קיים ופעיל במערכת ה-Prepaid
+    if "<GetIVRLineInformationResult>" in resp_info:
+        if not status: # אם אין סטטוס מפורש (כמו במקרה של 0 MB)
+            status = "Active"
+            plan = TARGET_PLAN
+    else:
+        return "לא נמצא", "אין נתונים על הסים בשרת", resp_info
 
     return status, (plan if plan else "לא ידוע"), resp_info
 
-# --- ממשק משתמש (ללא שינוי) ---
+# --- ממשק משתמש ---
 
 st.title("📡 מערכת ניהול ובדיקת סימים")
 
@@ -126,7 +121,7 @@ with tab2:
                 new_data = {'תאריך הוספה': datetime.now().strftime('%Y-%m-%d'), 'ICCID': str(new_iccid), 'שם חנות': new_store}
                 pd.concat([df, pd.DataFrame([new_data])], ignore_index=True).to_csv(DB_FILE, index=False, encoding='utf-8-sig')
                 st.success("נשמר!")
-    
+
     if st.button("🚀 הרץ בדיקה קבוצתית"):
         if not u or not p: st.error("הזן פרטים בסיידבר")
         else:
