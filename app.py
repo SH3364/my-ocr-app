@@ -71,14 +71,16 @@ def smart_check_logic(input_val, user, password):
     plan = parse_xml_value(resp_info, "RatePlan")
     megabytes = parse_xml_value(resp_info, "MegabytesRemaining")
     
-    # --- התיקון: בדיקה אם יש יתרה ממשית או סטטוס פעיל ---
-    # אם הסטטוס חסר והיתרה היא 0, זה אומר שאין קו פעיל על הסים
+    # --- התיקון המעודכן ---
+    # אם קיימת תגית MegabytesRemaining (גם אם היא 0), זה אומר שיש קו משויך במערכת ה-Prepaid
+    if not status and megabytes is not None:
+        status = "Active"
+        plan = TARGET_PLAN
+    
     if not status:
-        if megabytes is not None and float(megabytes) > 0:
-            status = "Active"
-            plan = TARGET_PLAN
-        else:
-            return "זוהה (ללא קו)", "הסים קיים במערכת אך אין עליו חבילה פעילה", resp_info
+        if "<GetIVRLineInformationResult>" in resp_info:
+             return "זוהה (ללא קו)", "הסים קיים במערכת אך אין עליו חבילה פעילה", resp_info
+        return "לא נמצא", "אין נתונים", resp_info
 
     return status, (plan if plan else "לא ידוע"), resp_info
 
@@ -101,6 +103,7 @@ with tab1:
             with st.spinner("בודק..."):
                 s, pl, raw = smart_check_logic(check_val, u, p)
                 c1, c2 = st.columns(2)
+                # הצלחה אם הסטטוס פעיל או שזו התוכנית המבוקשת
                 if s == "Active" or pl == TARGET_PLAN:
                     c1.success(f"**סטטוס:** {s}")
                     c2.success(f"**תוכנית:** {pl}")
