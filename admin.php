@@ -2,7 +2,6 @@
 $db_file = 'config.json';
 $data = json_decode(file_get_contents($db_file), true);
 
-// שמירת שינויים
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['save_settings'])) {
         $data['auth']['user'] = $_POST['user'];
@@ -16,62 +15,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     file_put_contents($db_file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     header("Location: admin.php"); exit;
 }
+
+function checkSingleSim($iccid, $user, $pass) {
+    $apiUrl = "https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx";
+    $xml = '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><GetWirelessByICC xmlns="urn:telispire:MdnServices"><username>'.$user.'</username><password>'.$pass.'</password><ICCID>'.$iccid.'</ICCID></GetWirelessByICC></soap:Body></soap:Envelope>';
+    $ch = curl_init($apiUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: text/xml; charset=utf-8', 'SOAPAction: "urn:telispire:MdnServices/GetWirelessByICC"']);
+    $res = curl_exec($ch); curl_close($ch);
+    return $res;
+}
 ?>
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
 <head>
-    <meta charset="utf-8">
-    <title>ניהול מערכת סימים</title>
-    <style>
-        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
-        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        input { padding: 8px; margin: 5px; width: 200px; }
-        button { padding: 8px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: right; }
-    </style>
+    <meta charset="utf-8"><title>מערכת ניהול סימים</title>
+    <style>body { font-family: sans-serif; background: #f0f2f5; padding: 20px; } .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }</style>
 </head>
 <body>
-    <h1>⚙️ ניהול מערכת סימים</h1>
-    
     <div class="card">
-        <h3>הגדרות API ומייל להתראות</h3>
+        <h2>🔑 הגדרות API (שנה מתי שתרצה)</h2>
         <form method="post">
-            <input type="text" name="user" placeholder="שם משתמש API" value="<?= $data['auth']['user'] ?>">
-            <input type="password" name="pass" placeholder="סיסמה API" value="<?= $data['auth']['pass'] ?>">
-            <input type="email" name="email" placeholder="מייל לקבלת התראות" value="<?= $data['settings']['alert_email'] ?>">
+            <input type="text" name="user" placeholder="User" value="<?= $data['auth']['user'] ?>">
+            <input type="password" name="pass" placeholder="Pass" value="<?= $data['auth']['pass'] ?>">
+            <input type="email" name="email" placeholder="Email להתראות" value="<?= $data['settings']['alert_email'] ?>">
             <button type="submit" name="save_settings">שמור הגדרות</button>
         </form>
     </div>
 
     <div class="card">
-        <h3>הוספת סים חדש למעקב</h3>
-        <form method="post">
-            <input type="text" name="iccid" placeholder="ICCID" required>
-            <input type="text" name="shop" placeholder="שם חנות" required>
-            <button type="submit" name="add_sim">הוסף לרשימה</button>
+        <h2>🔍 בדיקת סים ספציפי בזמן אמת</h2>
+        <form method="get">
+            <input type="text" name="check_iccid" placeholder="הכנס ICCID">
+            <button type="submit">בדוק עכשיו 🚀</button>
         </form>
+        <?php if(isset($_GET['check_iccid'])): 
+            $raw = checkSingleSim($_GET['check_iccid'], $data['auth']['user'], $data['auth']['pass']);
+            echo "<pre>תוצאה גולמית מהשרת:\n".htmlspecialchars($raw)."</pre>";
+        endif; ?>
     </div>
 
     <div class="card">
-        <h3>רשימת סימים במעקב</h3>
-        <table>
-            <tr><th>שם חנות</th><th>ICCID</th><th>פעולות</th></tr>
+        <h2>📋 רשימת חנויות וסימים (למעקב יומי)</h2>
+        <form method="post">
+            <input type="text" name="iccid" placeholder="ICCID" required>
+            <input type="text" name="shop" placeholder="שם חנות" required>
+            <button type="submit" name="add_sim">הוסף למעקב</button>
+        </form>
+        <table border="1" style="width:100%; margin-top:10px; border-collapse: collapse;">
+            <tr><th>חנות</th><th>ICCID</th><th>פעולה</th></tr>
             <?php foreach ($data['sims'] as $i => $sim): ?>
-            <tr>
-                <td><?= $sim['shop'] ?></td>
-                <td><?= $sim['iccid'] ?></td>
-                <td>
-                    <form method="post" style="display:inline;">
-                        <input type="hidden" name="index" value="<?= $i ?>">
-                        <button type="submit" name="delete_sim" style="background:red;">מחק</button>
-                    </form>
-                </td>
-            </tr>
+            <tr><td><?= $sim['shop'] ?></td><td><?= $sim['iccid'] ?></td><td><form method="post"><input type="hidden" name="index" value="<?= $i ?>"><button type="submit" name="delete_sim">מחק</button></form></td></tr>
             <?php endforeach; ?>
         </table>
     </div>
-
-    <p><a href="cron.php" target="_blank">לחץ כאן להרצת בדיקה ידנית עכשיו 🚀</a></p>
 </body>
 </html>
