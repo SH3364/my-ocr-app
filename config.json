@@ -1,0 +1,11 @@
+{
+    "auth": {
+        "user": "",
+        "pass": ""
+    },
+    "settings": {
+        "target_plan": "Prepaid Refills - Talk Only - 4G HD",
+        "alert_email": ""
+    },
+    "sims": []
+}
