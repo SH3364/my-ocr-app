@@ -1,7 +1,7 @@
 <?php
 $data = json_decode(file_get_contents('config.json'), true);
 $apiUrl = "https://wirelessprovisioning.com/desktopmodules/telispire.webservices/mdnservices.asmx";
-$targetPlan = $data['settings']['target_plan'];
+$targetPlan = "Prepaid Refills - Talk Only - 4G HD";
 
 $alerts = [];
 foreach ($data['sims'] as $sim) {
@@ -11,20 +11,21 @@ foreach ($data['sims'] as $sim) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: text/xml', 'SOAPAction: "urn:telispire:MdnServices/GetWirelessByICC"']);
-    $response = curl_exec($ch); curl_close($ch);
+    $res = curl_exec($ch); curl_close($ch);
 
-    $xmlObj = simplexml_load_string(str_ireplace(['soap:', 'soapenv:'], '', $response));
-    $res = $xmlObj->Body->GetWirelessByICCResponse->GetWirelessByICCResult;
+    $clean = str_ireplace(['soap:', 'soapenv:'], '', $res);
+    $xmlObj = simplexml_load_string($clean);
+    $info = $xmlObj->Body->GetWirelessByICCResponse->GetWirelessByICCResult;
     
-    $status = (string)$res->Status;
-    $plan = (string)$res->RatePlan;
+    $status = (string)$info->Status;
+    $plan = (string)$info->RatePlan;
 
-    // לוגיקה: אם לא Available והחבילה לא תואמת - התראה!
+    // התראה אם הסים תפוס עם חבילה לא נכונה
     if ($status !== "Available" && $plan !== $targetPlan) {
-        $alerts[] = "חנות: {$sim['shop']} | ICCID: {$sim['iccid']} | חבילה: $plan";
+        $alerts[] = "חנות: {$sim['shop']} | ICCID: {$sim['iccid']} | חבילה שנמצאה: $plan";
     }
 }
 
-if (!empty($alerts)) {
-    mail($data['settings']['alert_email'], "התראת סימים: חבילה שגויה!", "נמצאו חריגות:\n\n" . implode("\n", $alerts));
+if (!empty($alerts) && !empty($data['settings']['alert_email'])) {
+    mail($data['settings']['alert_email'], "התראת חבילה שגויה!", "נמצאו חריגות:\n\n" . implode("\n", $alerts));
 }
