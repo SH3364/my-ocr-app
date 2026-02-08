@@ -1,18 +1,28 @@
-<?php 
-include 'functions.php';
+<?php
+$configFile = 'config.json';
+$simsFile = 'sims.json';
 
-// שמירת הגדרות חדשות
-if (isset($_POST['save_settings'])) {
-    $stmt = $db->prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
-    $stmt->execute(['api_user', $_POST['api_user']]);
-    $stmt->execute(['api_pass', $_POST['api_pass']]);
-    $stmt->execute(['admin_email', $_POST['admin_email']]);
+// טעינת נתונים
+$config = file_exists($configFile) ? json_decode(file_get_contents($configFile), true) : ['user' => '', 'pass' => '', 'email' => ''];
+$sims = file_exists($simsFile) ? json_decode(file_get_contents($simsFile), true) : [];
+
+// שמירת הגדרות
+if (isset($_POST['save_config'])) {
+    $config = ['user' => $_POST['user'], 'pass' => $_POST['pass'], 'email' => $_POST['email']];
+    file_put_contents($configFile, json_encode($config));
 }
 
-// הוספת סים חדש
+// הוספת סים
 if (isset($_POST['add_sim'])) {
-    $stmt = $db->prepare("INSERT INTO sims (iccid, shop_name) VALUES (?, ?)");
-    $stmt->execute([$_POST['iccid'], $_POST['shop_name']]);
+    $sims[] = ['iccid' => $_POST['iccid'], 'shop' => $_POST['shop']];
+    file_put_contents($simsFile, json_encode($sims));
+}
+
+// מחיקת סים
+if (isset($_GET['delete'])) {
+    unset($sims[$_GET['delete']]);
+    file_put_contents($simsFile, json_encode(array_values($sims)));
+    header("Location: index.php");
 }
 ?>
 
@@ -20,57 +30,57 @@ if (isset($_POST['add_sim'])) {
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>ניהול סימים - Telispire</title>
-    <link rel="stylesheet" href="style.css">
+    <title>מערכת ניהול סימים</title>
+    <style>
+        body { font-family: system-ui; margin: 20px; background: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input { padding: 8px; margin: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 15px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: right; }
+    </style>
 </head>
 <body>
-    <h1>ניהול מערכת סימים</h1>
-    
-    <section>
-        <h2>הגדרות מערכת</h2>
-        <form method="post">
-            <input type="text" name="api_user" placeholder="שם משתמש API" value="<?=getSetting('api_user')?>">
-            <input type="password" name="api_pass" placeholder="סיסמה" value="<?=getSetting('api_pass')?>">
-            <input type="email" name="admin_email" placeholder="אימייל להתראות" value="<?=getSetting('admin_email')?>">
-            <button type="submit" name="save_settings">שמור הגדרות</button>
-        </form>
-    </section>
 
-    <hr>
+<div class="card">
+    <h2>הגדרות API</h2>
+    <form method="post">
+        <input type="text" name="user" placeholder="שם משתמש" value="<?=$config['user']?>">
+        <input type="password" name="pass" placeholder="סיסמה" value="<?=$config['pass']?>">
+        <input type="email" name="email" placeholder="אימייל להתראות" value="<?=$config['email']?>">
+        <button type="submit" name="save_config">שמור הגדרות</button>
+    </form>
+</div>
 
-    <section>
-        <h2>הוספת סים לרשימה</h2>
-        <form method="post">
-            <input type="text" name="iccid" placeholder="מספר ICCID" required>
-            <input type="text" name="shop_name" placeholder="שם חנות" required>
-            <button type="submit" name="add_sim">הוסף סים</button>
-        </form>
-    </section>
+<div class="card">
+    <h2>הוספת סים חדש</h2>
+    <form method="post">
+        <input type="text" name="iccid" placeholder="מספר סים (ICCID)" required>
+        <input type="text" name="shop" placeholder="שם חנות" required>
+        <button type="submit" name="add_sim">הוסף לרשימה</button>
+    </form>
+</div>
 
-    <hr>
-
-    <h2>רשימת סימים קיימת</h2>
-    <table border="1">
+<div class="card">
+    <h2>רשימת סימים</h2>
+    <table>
         <tr>
             <th>ICCID</th>
             <th>חנות</th>
-            <th>בדיקה מהירה</th>
+            <th>פעולות</th>
         </tr>
-        <?php
-        $sims = $db->query("SELECT * FROM sims")->fetchAll();
-        foreach ($sims as $sim): ?>
+        <?php foreach ($sims as $id => $sim): ?>
         <tr>
             <td><?=$sim['iccid']?></td>
-            <td><?=$sim['shop_name']?></td>
-            <td><a href="?check=<?=$sim['iccid']?>">בדוק עכשיו</a></td>
+            <td><?=$sim['shop']?></td>
+            <td>
+                <a href="check_single.php?iccid=<?=$sim['iccid']?>">בדיקה בזמן אמת</a> | 
+                <a href="?delete=<?=$id?>" style="color:red;">מחיקה</a>
+            </td>
         </tr>
         <?php endforeach; ?>
     </table>
+</div>
 
-    <?php if(isset($_GET['check'])): 
-        $res = checkSimDetails($_GET['check']);
-        echo "<h3>תוצאת בדיקה ל-".$_GET['check'].":</h3>";
-        echo "<pre>"; print_r($res); echo "</pre>";
-    endif; ?>
 </body>
 </html>
