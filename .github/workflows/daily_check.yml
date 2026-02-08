@@ -1,0 +1,20 @@
+name: SIM Daily Checker
+on:
+  schedule:
+    - cron: '0 8 * * *' # ירוץ כל יום ב-8 בבוקר
+  workflow_dispatch: # מאפשר להריץ ידנית מהאתר
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run SIM Check
+        run: |
+          # כאן נריץ את ה-PHP ונקבל את התוצאה
+          RESULT=$(php check.php)
+          echo "$RESULT"
+          if [[ $RESULT == *"FAILED"* ]]; then
+            echo "Found issues, sending email..."
+            # כאן מוסיפים פקודה לשליחת מייל (למשל דרך SendGrid Action)
+          fi
