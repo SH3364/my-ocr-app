@@ -1,20 +1,29 @@
-name: SIM Daily Checker
+name: Daily SIM Audit
 on:
   schedule:
-    - cron: '0 8 * * *' # ירוץ כל יום ב-8 בבוקר
-  workflow_dispatch: # מאפשר להריץ ידנית מהאתר
+    - cron: '0 9 * * *' # כל יום ב-9 בבוקר
+  workflow_dispatch: # מאפשר הרצה ידנית
 
 jobs:
-  check:
+  run-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Run SIM Check
+      - name: Execute Check
         run: |
-          # כאן נריץ את ה-PHP ונקבל את התוצאה
-          RESULT=$(php check.php)
-          echo "$RESULT"
-          if [[ $RESULT == *"FAILED"* ]]; then
-            echo "Found issues, sending email..."
-            # כאן מוסיפים פקודה לשליחת מייל (למשל דרך SendGrid Action)
+          RESULT=$(php checker.php)
+          if [ "$RESULT" == "FAIL" ]; then
+            echo "SHOULD_SEND=true" >> $GITHUB_ENV
           fi
+      
+      - name: Send Mail
+        if: env.SHOULD_SEND == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{secrets.MAIL_USER}} # הגדר ב-Secrets של הפרויקט
+          password: ${{secrets.MAIL_PASS}} # הגדר ב-Secrets של הפרויקט
+          subject: דוח סימים לא תקינים - התראה!
+          body: file://report.txt
+          to: YOUR_EMAIL@gmail.com
