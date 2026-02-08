@@ -1,5 +1,7 @@
 {
   "api_user": "",
   "api_pass": "",
+  "target_email": "",
+  "smtp_pass": "",
   "sims": []
 }
