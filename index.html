@@ -2,68 +2,62 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>מערכת ניהול סימים - Telispire</title>
+    <title>ניהול סימים</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; text-align: center; }
-        .card { background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
-        button { background: #28a745; color: white; border: none; padding: 15px 30px; cursor: pointer; border-radius: 8px; font-size: 16px; font-weight: bold; }
-        .config-section { border-top: 2px solid #eee; margin-top: 20px; padding-top: 20px; }
+        body { font-family: sans-serif; background: #f4f4f4; padding: 20px; text-align: center; }
+        .box { background: white; max-width: 500px; margin: auto; padding: 20px; border-radius: 10px; shadow: 0 0 10px rgba(0,0,0,0.1); }
+        input, textarea { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; cursor: pointer; width: 95%; border-radius: 5px; font-weight: bold; }
+        #status { margin-top: 15px; color: blue; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h1>ניהול סימים ובדיקה</h1>
-        
+    <div class="box">
+        <h2>הגדרות מערכת</h2>
+        <input type="password" id="gh_token" placeholder="הכנס GitHub Token">
         <input type="text" id="api_user" placeholder="שם משתמש API">
-        <input type="password" id="api_pass" placeholder="סיסמה API">
-        <textarea id="sim_list" rows="10" placeholder="הכנס רשימה: ICCID, שם חנות (שורה לכל סים)"></textarea>
-        
-        <div class="config-section">
-            <input type="password" id="gh_token" placeholder="הכנס את ה-GitHub Token שלך">
-            <button onclick="saveToGitHub()">שמור עדכונים והפעל בדיקה יומיות</button>
-        </div>
-        <p id="status"></p>
+        <input type="password" id="api_pass" placeholder="סיסמה API (תוצג כנקודות)">
+        <textarea id="sim_list" rows="8" placeholder="רשימת סימים: ICCID,שם חנות (כל אחד בשורה חדשה)"></textarea>
+        <button onclick="saveAndRun()">שמור ועדכן נתונים</button>
+        <div id="status"></div>
     </div>
 
     <script>
-        async function saveToGitHub() {
-            const status = document.getElementById('status');
+        async function saveAndRun() {
             const token = document.getElementById('gh_token').value;
-            const content = {
+            const status = document.getElementById('status');
+            const data = {
                 user: document.getElementById('api_user').value,
                 pass: document.getElementById('api_pass').value,
                 sims: document.getElementById('sim_list').value
             };
 
-            const owner = "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"; // שנה לשם המשתמש שלך בגיטהאב
-            const repo = "my-ocr-app"; // שנה לשם הפרויקט שלך
+            const user = "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"; 
+            const repo = "my-ocr-app";
 
-            status.innerText = "מעדכן נתונים... אנא המתן";
+            status.innerText = "מעדכן נתונים ב-GitHub...";
 
             try {
-                // 1. קבלת ה-SHA של הקובץ הקיים (חובה ב-GitHub API)
-                const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data.json`, {
+                // משיכת ה-SHA (חובה לעדכון קובץ)
+                const getFile = await fetch(`https://api.github.com/repos/${user}/${repo}/contents/data.json`, {
                     headers: { 'Authorization': `token ${token}` }
                 });
-                const fileData = await getRes.json();
-                
-                // 2. עדכון הקובץ
-                const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data.json`, {
+                const fileJson = await getFile.json();
+
+                // עדכון הקובץ
+                const res = await fetch(`https://api.github.com/repos/${user}/${repo}/contents/data.json`, {
                     method: 'PUT',
                     headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        message: "Update SIM data from Web UI",
-                        content: btoa(unescape(encodeURIComponent(JSON.stringify(content, null, 2)))),
-                        sha: fileData.sha
+                        message: "Update SIM data",
+                        content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
+                        sha: fileJson.sha
                     })
                 });
 
-                if (res.ok) { status.innerText = "✅ הנתונים עודכנו בהצלחה! הבדיקה תרוץ אוטומטית."; }
-                else { throw new Error(); }
-            } catch (e) {
-                status.innerText = "❌ שגיאה: וודא שהטוקן ושם המשתמש נכונים.";
-            }
+                if(res.ok) status.innerText = "✅ הנתונים עודכנו! הבדיקה תרוץ אוטומטית.";
+                else status.innerText = "❌ שגיאה בעדכון. בדוק את הטוקן.";
+            } catch (e) { status.innerText = "❌ תקלה בתקשורת."; }
         }
     </script>
 </body>
