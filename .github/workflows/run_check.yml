@@ -1,0 +1,29 @@
+name: SIM Daily Audit
+on:
+  schedule:
+    - cron: '0 8 * * *' # ירוץ כל יום ב-8 בבוקר
+  workflow_dispatch: # מאפשר להריץ ידנית מה-GitHub
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Audit Script
+        run: |
+          RESULT=$(php checker.php)
+          if [[ $RESULT == *"REPORT_START"* ]]; then
+            echo "$RESULT" > final_report.txt
+            echo "SEND_EMAIL=true" >> $GITHUB_ENV
+          fi
+      - name: Send Alert Email
+        if: env.SEND_EMAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{secrets.MAIL_USER}}
+          password: ${{secrets.MAIL_PASS}}
+          subject: התראת סימים לא תקינים
+          to: your-email@gmail.com # הכנס את המייל שלך כאן
+          body: file://final_report.txt
