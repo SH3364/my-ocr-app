@@ -4,26 +4,26 @@
     <meta charset="UTF-8">
     <title>ניהול סימים</title>
     <style>
-        body { font-family: sans-serif; background: #f4f4f4; padding: 20px; text-align: center; }
-        .box { background: white; max-width: 500px; margin: auto; padding: 20px; border-radius: 10px; shadow: 0 0 10px rgba(0,0,0,0.1); }
-        input, textarea { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; }
-        button { background: #007bff; color: white; border: none; padding: 12px 20px; cursor: pointer; width: 95%; border-radius: 5px; font-weight: bold; }
-        #status { margin-top: 15px; color: blue; }
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
+        .card { background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 15px; width: 100%; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        .status { margin-top: 15px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h2>הגדרות מערכת</h2>
-        <input type="password" id="gh_token" placeholder="הכנס GitHub Token">
+    <div class="card">
+        <h1>הגדרות מערכת סימים</h1>
+        <input type="password" id="gh_token" placeholder="הכנס את ה-GitHub Token שייצרת">
         <input type="text" id="api_user" placeholder="שם משתמש API">
-        <input type="password" id="api_pass" placeholder="סיסמה API (תוצג כנקודות)">
-        <textarea id="sim_list" rows="8" placeholder="רשימת סימים: ICCID,שם חנות (כל אחד בשורה חדשה)"></textarea>
-        <button onclick="saveAndRun()">שמור ועדכן נתונים</button>
-        <div id="status"></div>
+        <input type="password" id="api_pass" placeholder="סיסמה API">
+        <textarea id="sim_list" rows="10" placeholder="רשימת סימים: ICCID, שם חנות (שורה חדשה לכל סים)"></textarea>
+        <button onclick="saveData()">שמור נתונים ועדכן מערכת</button>
+        <div id="status" class="status"></div>
     </div>
 
     <script>
-        async function saveAndRun() {
+        async function saveData() {
             const token = document.getElementById('gh_token').value;
             const status = document.getElementById('status');
             const data = {
@@ -32,32 +32,39 @@
                 sims: document.getElementById('sim_list').value
             };
 
-            const user = "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"; 
-            const repo = "my-ocr-app";
+            // הגדרות גיטהאב - שנה את אלו לשלך!
+            const OWNER = "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"; // שם המשתמש שלך בגיטהאב
+            const REPO = "my-ocr-app"; // שם הפרויקט
 
-            status.innerText = "מעדכן נתונים ב-GitHub...";
+            status.innerText = "מעדכן... נא להמתין";
+            status.style.color = "blue";
 
             try {
-                // משיכת ה-SHA (חובה לעדכון קובץ)
-                const getFile = await fetch(`https://api.github.com/repos/${user}/${repo}/contents/data.json`, {
+                // 1. קבלת ה-SHA של הקובץ הקיים
+                const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/data.json`, {
                     headers: { 'Authorization': `token ${token}` }
                 });
-                const fileJson = await getFile.json();
+                const fileData = await getRes.json();
 
-                // עדכון הקובץ
-                const res = await fetch(`https://api.github.com/repos/${user}/${repo}/contents/data.json`, {
+                // 2. עדכון הקובץ בגיטהאב
+                const putRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/data.json`, {
                     method: 'PUT',
                     headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        message: "Update SIM data",
+                        message: "Update SIM data from site",
                         content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
-                        sha: fileJson.sha
+                        sha: fileData.sha
                     })
                 });
 
-                if(res.ok) status.innerText = "✅ הנתונים עודכנו! הבדיקה תרוץ אוטומטית.";
-                else status.innerText = "❌ שגיאה בעדכון. בדוק את הטוקן.";
-            } catch (e) { status.innerText = "❌ תקלה בתקשורת."; }
+                if (putRes.ok) {
+                    status.innerText = "✅ הנתונים נשמרו בהצלחה ב-GitHub!";
+                    status.style.color = "green";
+                } else { throw new Error(); }
+            } catch (e) {
+                status.innerText = "❌ שגיאה: וודא שהטוקן ושם המשתמש נכונים.";
+                status.style.color = "red";
+            }
         }
     </script>
 </body>
