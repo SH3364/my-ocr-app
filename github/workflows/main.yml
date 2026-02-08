@@ -1,0 +1,29 @@
+name: SIM Checker Engine
+on:
+  schedule:
+    - cron: '0 9 * * *' # רץ כל יום ב-9 בבוקר
+  workflow_dispatch: # מאפשר הרצה ידנית מהאתר/כפתור
+
+jobs:
+  run-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run PHP Script
+        run: |
+          php checker.php > output.log
+          if grep -q "FAILED_SIMS_FOUND" output.log; then
+            echo "SEND_EMAIL=true" >> $GITHUB_ENV
+          fi
+      
+      - name: Send Email Alert
+        if: env.SEND_EMAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{secrets.MAIL_USER}}
+          password: ${{secrets.MAIL_PASS}}
+          subject: התראת סימים לא תקינים
+          body: file://daily_report.txt
+          to: your-email@gmail.com
