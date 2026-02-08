@@ -1,0 +1,54 @@
+name: SIM Checker System
+on:
+  schedule:
+    - cron: '0 6 * * *' # רץ כל יום ב-08:00 שעון ישראל בערך
+  workflow_dispatch:
+    inputs:
+      icc_number:
+        description: 'SIM to check manually'
+        required: false
+
+jobs:
+  run_check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # חובה כדי לשמור את הדוחות
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: curl, simplexml, json
+
+      - name: Run Logic
+        run: |
+          if [ "${{ github.event.inputs.icc_number }}" != "" ]; then
+            # בדיקה ידנית
+            php checker.php single "${{ github.event.inputs.icc_number }}" > manual_result.txt
+          else
+            # בדיקה יומית
+            php checker.php daily
+          fi
+
+      - name: Save Results to Repo
+        run: |
+          git config --global user.name 'SIM Bot'
+          git config --global user.email 'bot@noreply.github.com'
+          
+          # אם זה דוח יומי - שמור אותו
+          if [ -f last_report.txt ]; then
+            git add last_report.txt
+            git commit -m "Update Daily Report" || echo "No changes"
+          fi
+          
+          # אם זו בדיקה ידנית - שמור אותה
+          if [ -f manual_result.txt ]; then
+            git add manual_result.txt
+            git commit -m "Update Manual Result" || echo "No changes"
+          fi
+          
+          git push
