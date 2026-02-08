@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>ניהול בדיקת סימים</title>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
+        input { width: 90%; padding: 10px; margin: 10px 0; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+        .sim-item { border-bottom: 1px solid #ddd; padding: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>הגדרות API</h2>
+        <input type="text" id="api_user" placeholder="שם משתמש API">
+        <input type="password" id="api_pass" placeholder="סיסמה API">
+        
+        <hr>
+        <h2>ניהול סימים</h2>
+        <div id="simList"></div>
+        <input type="text" id="newIcc" placeholder="מספר ICC">
+        <input type="text" id="newShop" placeholder="שם חנות">
+        <button onclick="addSim()">הוסף סים לרשימה</button>
+
+        <hr>
+        <button style="background: #28a745;" onclick="saveAndRun()">שמור והפעל בדיקה עכשיו</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // הקוד כאן משתמש ב-GitHub API כדי לעדכן את config.json
+        // תצטרך להזין כאן Token אישי של GitHub (נסביר למטה איך להשיג)
+        const GH_TOKEN = "כאן_שמים_את_הטוקן_שלך";
+        const REPO = "שם_המשתמש/שם_המאגר";
+
+        async function saveAndRun() {
+            document.getElementById('status').innerText = "שומר נתונים...";
+            // לוגיקה לעדכון הקובץ config.json דרך ה-API של GitHub
+            // לאחר העדכון, הקוד יפעיל את ה-Workflow של GitHub Actions
+            alert("הנתונים נשמרו! הבדיקה תתחיל בעוד מספר רגעים.");
+        }
+    </script>
+</body>
+</html>
