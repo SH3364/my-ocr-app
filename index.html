@@ -4,47 +4,48 @@
     <meta charset="UTF-8">
     <title>ניהול סימים - Telispire</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; background: #f4f4f4; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 500px; margin: auto; }
-        input, textarea { width: 100%; margin: 10px 0; padding: 8px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; padding: 10px; cursor: pointer; width: 100%; border-radius: 5px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { color: #1c1e21; text-align: center; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input, textarea { width: 100%; padding: 12px; margin-top: 5px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        button { background-color: #007bff; color: white; border: none; padding: 15px; width: 100%; border-radius: 6px; font-size: 18px; cursor: pointer; margin-top: 20px; transition: 0.3s; }
+        button:hover { background-color: #0056b3; }
+        .status { margin-top: 15px; text-align: center; color: #28a745; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>הגדרות מערכת</h2>
+    <div class="container">
+        <h1>ניהול ובדיקת סימים</h1>
+        
         <label>שם משתמש API:</label>
-        <input type="text" id="api_user" placeholder="Username">
+        <input type="text" id="api_user" placeholder="הכנס שם משתמש">
+        
         <label>סיסמה API:</label>
-        <input type="password" id="api_pass" placeholder="Password">
-        <label>רשימת סימים (ICCID,שם חנות - כל אחד בשורה חדשה):</label>
-        <textarea id="sims_list" rows="10" placeholder="12345678,חנות א"></textarea>
-        <button onclick="saveData()">שמור עדכונים והרצ בדיקה</button>
-        <p id="status"></p>
+        <input type="password" id="api_pass" placeholder="הכנס סיסמה">
+        
+        <label>רשימת סימים (מספר ICC, שם חנות - פסיק ביניהם):</label>
+        <textarea id="sim_list" rows="8" placeholder="890123...,חנות א&#10;890456...,חנות ב"></textarea>
+        
+        <button onclick="updateSettings()">שמור הגדרות והפעל בדיקה כעת</button>
+        <div id="status" class="status"></div>
     </div>
 
     <script>
-        async function saveData() {
-            const status = document.getElementById('status');
-            status.innerText = "שומר נתונים... (זה מעדכן את ה-GitHub)";
+        async function updateSettings() {
+            const user = document.getElementById('api_user').value;
+            const pass = document.getElementById('api_pass').value;
+            const sims = document.getElementById('sim_list').value;
+            const statusDiv = document.getElementById('status');
             
-            const data = {
-                user: document.getElementById('api_user').value,
-                pass: document.getElementById('api_pass').value,
-                sims: document.getElementById('sims_list').value.split('\n').filter(line => line.includes(',')).map(line => {
-                    const [iccid, store] = line.split(',');
-                    return { iccid: iccid.trim(), store: store.trim() };
-                })
-            };
+            statusDiv.innerText = "מעדכן נתונים ב-GitHub...";
 
-            // כאן נדרש "Token" של גיטהאב כדי שהאתר יוכל לעדכן את הקובץ
-            // פעם ראשונה תצטרך להזין אותו, ואז הוא יישמר בדפדפן
-            let token = localStorage.getItem('gh_token') || prompt("אנא הכנס GitHub Token (חד פעמי):");
-            if(token) localStorage.setItem('gh_token', token);
+            // שמירת הנתונים ב-LocalStorage של הדפדפן כדי שלא תצטרך להקליד כל פעם מחדש
+            localStorage.setItem('sim_data', JSON.stringify({user, pass, sims}));
 
-            // לוגיקה לעדכון הקובץ config.json ב-GitHub דרך ה-API שלהם
-            // (מטעמי קיצור כאן, המערכת תבצע Commit ישירות ל-Repo)
-            alert("הנתונים נשלחו לעדכון ב-GitHub. הבדיקה היומית תתעדכן בפרטים אלו.");
+            alert("הנתונים נשמרו! כעת עליך לבצע Commit לקובץ data.json ב-GitHub כדי שהאוטומציה תתחיל.");
+            // הערה: כדי שהאתר יבצע את השמירה אוטומטית, נדרש GitHub Token. 
+            // בגרסה פשוטה זו, מומלץ לעדכן את הקובץ data.json ידנית פעם אחת.
         }
     </script>
 </body>
