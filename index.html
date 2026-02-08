@@ -4,241 +4,162 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מנהל סימים - נטפרי</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); overflow: hidden; }
-        .header { background: #2c3e50; color: white; padding: 20px; text-align: center; }
-        .nav { display: flex; background: #34495e; }
-        .nav-item { flex: 1; padding: 15px; text-align: center; color: #ecf0f1; cursor: pointer; transition: 0.3s; border-left: 1px solid #2c3e50; }
-        .nav-item:hover { background: #2c3e50; }
-        .nav-item.active { background: #3498db; font-weight: bold; }
-        .content { padding: 30px; display: none; }
-        .content.active { display: block; }
-        
-        /* Forms */
-        label { display: block; margin-top: 15px; font-weight: bold; margin-bottom: 5px; }
-        input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
-        textarea { height: 300px; font-family: monospace; resize: vertical; }
-        
-        /* Buttons */
-        .btn { display: inline-block; padding: 12px 25px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 20px; transition: 0.2s; }
-        .btn:hover { background: #2ecc71; }
-        .btn-blue { background: #2980b9; }
-        .btn-blue:hover { background: #3498db; }
-        
-        /* Status & Reports */
-        .log-box { background: #222; color: #0f0; padding: 15px; border-radius: 6px; font-family: monospace; white-space: pre-wrap; height: 400px; overflow-y: auto; direction: ltr; text-align: left; }
-        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
-        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: none; vertical-align: middle; margin-right: 10px; }
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 150px; margin-top: 10px; font-family: monospace; }
+        input { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        .status { margin-top: 20px; white-space: pre-wrap; text-align: left; direction: ltr; background: #333; color: lime; padding: 10px; display: none; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: none; vertical-align: middle; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Login Overlay */
-        #loginOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 999; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; }
     </style>
 </head>
 <body>
 
-<div id="loginOverlay">
-    <h2>הזדהות מערכת</h2>
-    <p>הכנס את ה-GitHub Token שלך:</p>
-    <input type="password" id="tokenInput" style="width: 300px; margin-bottom: 10px;" placeholder="ghp_...">
-    <button class="btn btn-blue" onclick="login()">התחבר</button>
-</div>
-
 <div class="container">
-    <div class="header">
-        <h1><i class="fas fa-sim-card"></i> מערכת ניהול ובדיקת סימים</h1>
-    </div>
+    <h1>מערכת ניהול סימים</h1>
     
-    <div class="nav">
-        <div class="nav-item active" onclick="showTab('sims')">ניהול רשימת סימים</div>
-        <div class="nav-item" onclick="showTab('config')">הגדרות וסיסמאות</div>
-        <div class="nav-item" onclick="showTab('manual')">בדיקה בזמן אמת</div>
-        <div class="nav-item" onclick="showTab('reports')">דוחות מערכת</div>
+    <div id="auth">
+        <h3>התחברות למערכת</h3>
+        <p>יש להזין את ה-GitHub Token שיצרת</p>
+        <input type="password" id="token" placeholder="ghp_...">
+        <button onclick="saveToken()">התחבר</button>
     </div>
 
-    <div id="sims" class="content active">
-        <h3><i class="fas fa-list"></i> עריכת רשימת סימים</h3>
-        <p>הכנס את הנתונים בפורמט: <code>שם חנות,מספר סים</code> (כל סים בשורה חדשה)</p>
-        <textarea id="csvEditor"></textarea>
-        <button class="btn" onclick="saveFile('sims.csv', 'csvEditor')"><i class="fas fa-save"></i> שמור רשימה <div class="loader"></div></button>
-    </div>
+    <div id="app" style="display:none;">
+        <hr>
+        <h3>1. הגדרות מערכת</h3>
+        <input type="text" id="apiUser" placeholder="שם משתמש ל-API של הסלולר">
+        <input type="password" id="apiPass" placeholder="סיסמה ל-API של הסלולר">
+        <input type="text" id="email" placeholder="אימייל לקבלת התראות">
+        <button onclick="saveConfig()">שמור הגדרות <span class="loader" id="loader_conf"></span></button>
 
-    <div id="config" class="content">
-        <h3><i class="fas fa-cog"></i> הגדרות חיבור ל-API והתראות</h3>
-        <div style="background: #fff3cd; padding: 10px; border-right: 4px solid #ffc107; margin-bottom: 15px; font-size: 13px;">
-            שים לב: הסיסמאות נשמרות בקובץ config.json בגיטהאב. וודא שהפרויקט מוגדר כ-Private בלבד!
-        </div>
-        
-        <label>שם משתמש ל-API:</label>
-        <input type="text" id="confUser">
-        
-        <label>סיסמא ל-API:</label>
-        <input type="password" id="confPass">
-        
-        <label>כתובת אימייל לקבלת התראות:</label>
-        <input type="text" id="confEmail" placeholder="email@example.com">
-        
-        <button class="btn" onclick="saveConfig()"><i class="fas fa-save"></i> שמור הגדרות <div class="loader"></div></button>
-    </div>
+        <hr>
+        <h3>2. עריכת רשימת סימים</h3>
+        <p>פורמט: שם חנות,מספר סים (כל אחד בשורה חדשה)</p>
+        <textarea id="csvContent"></textarea>
+        <button onclick="saveSims()">שמור רשימה <span class="loader" id="loader_sims"></span></button>
 
-    <div id="manual" class="content">
-        <h3><i class="fas fa-search"></i> בדיקת סים בודד</h3>
-        <input type="text" id="manualICC" placeholder="הכנס מספר ICCID לבדיקה...">
-        <button class="btn btn-blue" onclick="runCheck()"><i class="fas fa-play"></i> הרץ בדיקה עכשיו <div class="loader"></div></button>
-        <br><br>
-        <label>תוצאת בדיקה אחרונה:</label>
-        <div class="log-box" id="manualResult">המתן לתוצאה...</div>
-        <button class="btn" style="background: #7f8c8d; font-size: 12px;" onclick="loadFile('manual_result.txt', 'manualResult', true)">רענן תוצאה</button>
-    </div>
-
-    <div id="reports" class="content">
-        <h3><i class="fas fa-file-alt"></i> דוח יומי אחרון</h3>
-        <div class="log-box" id="dailyReport">טוען דוח...</div>
-        <button class="btn btn-blue" onclick="loadFile('last_report.txt', 'dailyReport', true)"><i class="fas fa-sync"></i> רענן דוח</button>
+        <hr>
+        <h3>3. בדיקה ידנית</h3>
+        <input type="text" id="checkIcc" placeholder="הכנס מספר סים לבדיקה מיידית">
+        <button onclick="runCheck()">הפעל בדיקה <span class="loader" id="loader_check"></span></button>
+        <div id="result" class="status"></div>
     </div>
 </div>
 
 <script>
-    // ==========================================
-    // הגדרות משתמש - ערוך כאן!
-    // ==========================================
-    const REPO_OWNER = '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';  // שם המשתמש שלך בגיטהאב
-    const REPO_NAME = 'my-ocr-app
-';      // שם הפרויקט שלך
-    // ==========================================
+    // פרטים שנלקחו מהצילום מסך שלך - לא צריך לשנות!
+    const USER = 'SH3364'; 
+    const REPO = 'my-ocr-app'; 
 
-    let TOKEN = localStorage.getItem('gh_token');
-
-    if(TOKEN) {
-        document.getElementById('loginOverlay').style.display = 'none';
-        initSystem();
+    let token = localStorage.getItem('gh_token');
+    
+    if(token) {
+        document.getElementById('auth').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        loadData();
     }
 
-    function login() {
-        const t = document.getElementById('tokenInput').value;
-        if(t) {
-            localStorage.setItem('gh_token', t);
-            TOKEN = t;
-            document.getElementById('loginOverlay').style.display = 'none';
-            initSystem();
-        }
+    function saveToken() {
+        token = document.getElementById('token').value;
+        if(!token) return alert('חובה להזין טוקן');
+        localStorage.setItem('gh_token', token);
+        location.reload();
     }
 
-    function initSystem() {
-        loadFile('sims.csv', 'csvEditor');
-        loadConfig();
-        loadFile('last_report.txt', 'dailyReport', true);
-    }
-
-    function showTab(id) {
-        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
-        event.currentTarget.classList.add('active');
-    }
-
-    // פונקציות תקשורת עם GitHub API
-    async function api(endpoint, method = 'GET', body = null) {
-        const opts = {
+    async function api(path, method = 'GET', body = null) {
+        const options = {
             method: method,
             headers: {
-                'Authorization': `token ${TOKEN}`,
+                'Authorization': `token ${token}`,
                 'Accept': 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json'
             }
         };
-        if(body) opts.body = JSON.stringify(body);
-        return fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/${endpoint}`, opts);
+        if(body) options.body = JSON.stringify(body);
+        return fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/${path}`, options);
     }
 
-    async function loadFile(path, elementId, isText = false) {
+    async function loadData() {
         try {
-            const res = await api(`contents/${path}?ref=main`); // הוספת timestamp למניעת caching
-            if(!res.ok) throw new Error('File not found');
-            const data = await res.json();
-            const content = decodeURIComponent(escape(atob(data.content))); // UTF-8 fix
+            // טעינת סימים
+            const resSims = await api('sims.csv?ref=main'); // הוספת ref למניעת cache
+            if(resSims.ok) {
+                const data = await resSims.json();
+                document.getElementById('csvContent').value = decodeURIComponent(escape(atob(data.content)));
+            }
             
-            if(isText) document.getElementById(elementId).innerText = content;
-            else document.getElementById(elementId).value = content;
-            return { content, sha: data.sha };
-        } catch(e) {
-            console.error(e);
-            if(isText) document.getElementById(elementId).innerText = "אין נתונים או שהקובץ עדיין לא נוצר.";
-        }
+            // טעינת הגדרות
+            const resConf = await api('config.json?ref=main');
+            if(resConf.ok) {
+                const data = await resConf.json();
+                const conf = JSON.parse(decodeURIComponent(escape(atob(data.content))));
+                document.getElementById('apiUser').value = conf.user || '';
+                document.getElementById('apiPass').value = conf.pass || '';
+                document.getElementById('email').value = conf.email || '';
+            }
+        } catch(e) { console.log(e); }
     }
 
-    async function saveFile(path, elementId) {
-        const btn = event.currentTarget;
-        const loader = btn.querySelector('.loader');
-        loader.style.display = 'inline-block';
-        
+    async function saveFile(path, content, message, loaderId) {
+        document.getElementById(loaderId).style.display = 'inline-block';
         try {
-            const content = document.getElementById(elementId).value;
-            const existing = await loadFile(path, null); // Get SHA
-            const sha = existing ? existing.sha : null;
+            let sha = null;
+            const check = await api(path);
+            if(check.ok) {
+                const data = await check.json();
+                sha = data.sha;
+            }
 
             const body = {
-                message: `Update ${path} via Dashboard`,
+                message: message,
                 content: btoa(unescape(encodeURIComponent(content))),
                 sha: sha
             };
-
-            const res = await api(`contents/${path}`, 'PUT', body);
+            
+            const res = await api(path, 'PUT', body);
             if(res.ok) alert('נשמר בהצלחה!');
-            else alert('שגיאה בשמירה');
+            else alert('שגיאה בשמירה: וודא שהטוקן תקין ויש לו הרשאות repo');
         } catch(e) {
             alert('שגיאה: ' + e.message);
         }
-        loader.style.display = 'none';
+        document.getElementById(loaderId).style.display = 'none';
     }
 
-    async function loadConfig() {
-        const res = await loadFile('config.json', null);
-        if(res) {
-            const conf = JSON.parse(res.content);
-            document.getElementById('confUser').value = conf.user || '';
-            document.getElementById('confPass').value = conf.pass || '';
-            document.getElementById('confEmail').value = conf.email || '';
-        }
-    }
-
-    async function saveConfig() {
+    function saveConfig() {
         const conf = {
-            user: document.getElementById('confUser').value,
-            pass: document.getElementById('confPass').value,
-            email: document.getElementById('confEmail').value
+            user: document.getElementById('apiUser').value,
+            pass: document.getElementById('apiPass').value,
+            email: document.getElementById('email').value
         };
-        // Mock element for generic save function
-        const mockEl = document.createElement('textarea');
-        mockEl.id = 'tempConfig';
-        mockEl.value = JSON.stringify(conf, null, 2);
-        document.body.appendChild(mockEl);
-        
-        await saveFile('config.json', 'tempConfig');
-        document.body.removeChild(mockEl);
+        saveFile('config.json', JSON.stringify(conf), 'Update Config', 'loader_conf');
+    }
+
+    function saveSims() {
+        saveFile('sims.csv', document.getElementById('csvContent').value, 'Update Sims', 'loader_sims');
     }
 
     async function runCheck() {
-        const icc = document.getElementById('manualICC').value;
-        if(!icc) return alert('נא להכניס מספר סים');
+        const icc = document.getElementById('checkIcc').value;
+        if(!icc) return alert('הכנס מספר סים');
         
-        const loader = document.querySelector('#manual .loader');
-        loader.style.display = 'inline-block';
-        document.getElementById('manualResult').innerText = "הבדיקה נשלחה לשרת. נא להמתין כ-30 שניות וללחוץ על 'רענן תוצאה'.";
-
-        try {
-            const res = await api('actions/workflows/daily.yml/dispatches', 'POST', {
-                ref: 'main',
-                inputs: { icc_number: icc }
-            });
-            if(res.ok) console.log('Dispatch sent');
-            else alert('שגיאה בשליחת הבדיקה');
-        } catch(e) {
-            alert('שגיאה');
-        }
-        loader.style.display = 'none';
+        document.getElementById('loader_check').style.display = 'inline-block';
+        alert('הבדיקה נשלחה לשרת! התוצאה תישלח למייל אם תהיה חריגה, או שתופיע בלוגים של גיטהאב.');
+        
+        // הפעלת ה-Action
+        await fetch(`https://api.github.com/repos/${USER}/${REPO}/actions/workflows/daily.yml/dispatches`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            body: JSON.stringify({ ref: 'main', inputs: { icc_number: icc } })
+        });
+        
+        document.getElementById('loader_check').style.display = 'none';
     }
 </script>
 </body>
