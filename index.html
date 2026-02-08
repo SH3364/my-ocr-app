@@ -4,42 +4,96 @@
     <meta charset="UTF-8">
     <title>ניהול בדיקת סימים</title>
     <style>
-        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-        input { width: 90%; padding: 10px; margin: 10px 0; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
-        .sim-item { border-bottom: 1px solid #ddd; padding: 10px 0; }
+        body { font-family: sans-serif; background: #f4f7f6; padding: 20px; }
+        .card { background: white; max-width: 700px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { background: #28a745; color: white; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 5px; font-size: 16px; }
+        .sim-row { display: flex; gap: 10px; margin-bottom: 5px; }
+        .remove-btn { background: #dc3545; width: 40px; }
+        #status { margin-top: 15px; color: blue; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>הגדרות API</h2>
-        <input type="text" id="api_user" placeholder="שם משתמש API">
-        <input type="password" id="api_pass" placeholder="סיסמה API">
+        <h2>הגדרות מערכת</h2>
+        <input type="password" id="gh_token" placeholder="GitHub Personal Access Token (חובה לעדכון)">
+        <input type="text" id="api_user" placeholder="שם משתמש ל-API של הסימים">
+        <input type="password" id="api_pass" placeholder="סיסמה ל-API של הסימים">
+        <input type="text" id="target_email" placeholder="אימייל לקבלת התראות (Gmail)">
+        <input type="password" id="smtp_pass" placeholder="סיסמת אפליקציה למייל (App Password)">
         
         <hr>
-        <h2>ניהול סימים</h2>
+        <h3>רשימת סימים וחנויות</h3>
         <div id="simList"></div>
-        <input type="text" id="newIcc" placeholder="מספר ICC">
-        <input type="text" id="newShop" placeholder="שם חנות">
-        <button onclick="addSim()">הוסף סים לרשימה</button>
-
+        <button onclick="addSimRow()" style="background: #6c757d; margin-bottom: 10px;">+ הוסף סים לרשימה</button>
+        
         <hr>
-        <button style="background: #28a745;" onclick="saveAndRun()">שמור והפעל בדיקה עכשיו</button>
+        <button onclick="saveAndRun()">שמור נתונים והפעל בדיקה עכשיו</button>
         <div id="status"></div>
     </div>
 
     <script>
-        // הקוד כאן משתמש ב-GitHub API כדי לעדכן את config.json
-        // תצטרך להזין כאן Token אישי של GitHub (נסביר למטה איך להשיג)
-        const GH_TOKEN = "כאן_שמים_את_הטוקן_שלך";
-        const REPO = "שם_המשתמש/שם_המאגר";
+        const owner = "YOUR_USERNAME"; 
+        const repo = "YOUR_REPO";
+
+        function addSimRow(icc = '', shop = '') {
+            const div = document.createElement('div');
+            div.className = 'sim-row';
+            div.innerHTML = `<input type="text" class="icc" value="${icc}" placeholder="ICC">
+                             <input type="text" class="shop" value="${shop}" placeholder="שם חנות">
+                             <button class="remove-btn" onclick="this.parentElement.remove()">X</button>`;
+            document.getElementById('simList').appendChild(div);
+        }
 
         async function saveAndRun() {
-            document.getElementById('status').innerText = "שומר נתונים...";
-            // לוגיקה לעדכון הקובץ config.json דרך ה-API של GitHub
-            // לאחר העדכון, הקוד יפעיל את ה-Workflow של GitHub Actions
-            alert("הנתונים נשמרו! הבדיקה תתחיל בעוד מספר רגעים.");
+            const token = document.getElementById('gh_token').value;
+            const status = document.getElementById('status');
+            if(!token) return alert("נא להזין Token של GitHub");
+
+            status.innerText = "שומר נתונים ב-GitHub...";
+            
+            const sims = [];
+            document.querySelectorAll('.sim-row').forEach(row => {
+                sims.push({icc: row.querySelector('.icc').value, shop: row.querySelector('.shop').value});
+            });
+
+            const config = {
+                api_user: document.getElementById('api_user').value,
+                api_pass: document.getElementById('api_pass').value,
+                target_email: document.getElementById('target_email').value,
+                smtp_pass: document.getElementById('smtp_pass').value,
+                sims: sims
+            };
+
+            try {
+                // 1. קבלת ה-SHA של הקובץ הקיים
+                const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/config.json`, {
+                    headers: { 'Authorization': `token ${token}` }
+                });
+                const fileData = await res.json();
+
+                // 2. עדכון הקובץ
+                await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/config.json`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `token ${token}` },
+                    body: JSON.stringify({
+                        message: "Update SIMs via Web UI",
+                        content: btoa(JSON.stringify(config, null, 2)),
+                        sha: fileData.sha
+                    })
+                });
+
+                // 3. הפעלת הבדיקה
+                status.innerText = "הנתונים נשמרו! מפעיל בדיקה בזמן אמת...";
+                await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/daily_check.yml/dispatches`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `token ${token}` },
+                    body: JSON.stringify({ ref: 'main' })
+                });
+                status.innerText = "הבדיקה התחילה! תקבל מייל אם יימצאו תקלות.";
+            } catch (e) {
+                status.innerText = "שגיאה: " + e.message;
+            }
         }
     </script>
 </body>
