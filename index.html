@@ -1,71 +1,201 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
-    <title>ניהול סימים</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת ניהול סימים - נטפרי</title>
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
-        .card { background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; padding: 15px; width: 100%; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; }
-        .status { margin-top: 15px; font-weight: bold; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; }
+        .tabs { display: flex; justify-content: center; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+        .tab { padding: 10px 20px; cursor: pointer; font-weight: bold; color: #555; }
+        .tab.active { border-bottom: 3px solid #007bff; color: #007bff; }
+        .content { display: none; }
+        .content.active { display: block; }
+        textarea { width: 100%; height: 200px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-family: monospace; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
+        button.delete { background-color: #dc3545; }
+        .status-box { background: #e9ecef; padding: 15px; margin-top: 20px; border-radius: 5px; white-space: pre-wrap; direction: ltr; text-align: left; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 2s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; display: none;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h1>הגדרות מערכת סימים</h1>
-        <input type="password" id="gh_token" placeholder="הכנס את ה-GitHub Token שייצרת">
-        <input type="text" id="api_user" placeholder="שם משתמש API">
-        <input type="password" id="api_pass" placeholder="סיסמה API">
-        <textarea id="sim_list" rows="10" placeholder="רשימת סימים: ICCID, שם חנות (שורה חדשה לכל סים)"></textarea>
-        <button onclick="saveData()">שמור נתונים ועדכן מערכת</button>
-        <div id="status" class="status"></div>
+
+<div class="container">
+    <h1>מערכת ניהול סימים</h1>
+    
+    <div id="loginSection" style="text-align: center;">
+        <h3>נדרש זיהוי ראשוני</h3>
+        <p>אנא הכנס את ה-GitHub Token שלך כדי להתחבר למערכת</p>
+        <input type="password" id="githubTokenInput" placeholder="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">
+        <button onclick="saveToken()">התחבר</button>
     </div>
 
-    <script>
-        async function saveData() {
-            const token = document.getElementById('gh_token').value;
-            const status = document.getElementById('status');
-            const data = {
-                user: document.getElementById('api_user').value,
-                pass: document.getElementById('api_pass').value,
-                sims: document.getElementById('sim_list').value
-            };
+    <div id="appInterface" style="display: none;">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('sims')">ניהול סימים</div>
+            <div class="tab" onclick="switchTab('settings')">הגדרות וסיסמאות</div>
+            <div class="tab" onclick="switchTab('check')">בדיקה ודוחות</div>
+        </div>
 
-            // הגדרות גיטהאב - שנה את אלו לשלך!
-            const OWNER = "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"; // שם המשתמש שלך בגיטהאב
-            const REPO = "my-ocr-app"; // שם הפרויקט
+        <div id="sims" class="content active">
+            <h3>רשימת סימים וחנויות</h3>
+            <p>ערוך את הרשימה בפורמט: <code>שם חנות,מספר סים</code></p>
+            <textarea id="csvContent"></textarea>
+            <button onclick="saveFile('sims.csv', document.getElementById('csvContent').value)">שמור שינויים <span class="loader" id="loader_sims"></span></button>
+        </div>
 
-            status.innerText = "מעדכן... נא להמתין";
-            status.style.color = "blue";
+        <div id="settings" class="content">
+            <h3>הגדרות חיבור ל-API</h3>
+            <label>שם משתמש API:</label>
+            <input type="text" id="apiUser">
+            <label>סיסמא API:</label>
+            <input type="password" id="apiPass">
+            <label>אימייל לקבלת התראות:</label>
+            <input type="text" id="alertEmail">
+            <br>
+            <button onclick="saveConfig()">עדכן הגדרות <span class="loader" id="loader_config"></span></button>
+            <p style="color: red; font-size: 12px;">שים לב: הסיסמה נשמרת בגיטהאב. וודא שהפרויקט מוגדר כ-Private.</p>
+        </div>
 
-            try {
-                // 1. קבלת ה-SHA של הקובץ הקיים
-                const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/data.json`, {
-                    headers: { 'Authorization': `token ${token}` }
-                });
-                const fileData = await getRes.json();
+        <div id="check" class="content">
+            <h3>בדיקה ידנית</h3>
+            <input type="text" id="manualSimInput" placeholder="הכנס מספר סים לבדיקה מיידית">
+            <button onclick="runManualCheck()">בדוק סים זה עכשיו <span class="loader" id="loader_check"></span></button>
+            
+            <h3>דוח בדיקה אחרון</h3>
+            <button onclick="loadReport()">רענן דוח</button>
+            <div class="status-box" id="reportBox">טוען נתונים...</div>
+        </div>
+    </div>
+</div>
 
-                // 2. עדכון הקובץ בגיטהאב
-                const putRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/data.json`, {
-                    method: 'PUT',
-                    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: "Update SIM data from site",
-                        content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
-                        sha: fileData.sha
-                    })
-                });
+<script>
+    // הגדרות המשתמש והרפוזיטורי
+    // *** חובה לשנות את השורות האלו לשם המשתמש והפרויקט שלך ***
+    const REPO_OWNER = 'YOUR_GITHUB_USERNAME'; // שם המשתמש שלך בגיטהאב
+    const REPO_NAME = 'YOUR_REPO_NAME';       // שם הפרויקט שיצרת
 
-                if (putRes.ok) {
-                    status.innerText = "✅ הנתונים נשמרו בהצלחה ב-GitHub!";
-                    status.style.color = "green";
-                } else { throw new Error(); }
-            } catch (e) {
-                status.innerText = "❌ שגיאה: וודא שהטוקן ושם המשתמש נכונים.";
-                status.style.color = "red";
-            }
+    let GITHUB_TOKEN = localStorage.getItem('gh_token');
+
+    function saveToken() {
+        const token = document.getElementById('githubTokenInput').value;
+        if(token) {
+            localStorage.setItem('gh_token', token);
+            GITHUB_TOKEN = token;
+            initApp();
         }
-    </script>
+    }
+
+    function initApp() {
+        if(!GITHUB_TOKEN) return;
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('appInterface').style.display = 'block';
+        loadFile('sims.csv', 'csvContent');
+        loadConfig();
+        loadReport();
+    }
+
+    if(GITHUB_TOKEN) initApp();
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        event.target.classList.add('active');
+    }
+
+    async function githubApi(endpoint, method = 'GET', body = null) {
+        const headers = {
+            'Authorization': `token ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+        };
+        const options = { method, headers };
+        if (body) options.body = JSON.stringify(body);
+        
+        const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/${endpoint}`, options);
+        return response;
+    }
+
+    async function loadFile(filename, elementId) {
+        const res = await githubApi(`contents/${filename}`);
+        if(res.ok) {
+            const data = await res.json();
+            const content = decodeURIComponent(escape(atob(data.content))); // Decode UTF8
+            if(elementId) document.getElementById(elementId).value = content;
+            return { content, sha: data.sha };
+        }
+        return null;
+    }
+
+    async function saveFile(filename, content) {
+        const loader = document.querySelector(`button[onclick*="${filename}"] .loader`);
+        if(loader) loader.style.display = 'inline-block';
+
+        const currentFile = await loadFile(filename);
+        const sha = currentFile ? currentFile.sha : null;
+        
+        const body = {
+            message: `Update ${filename} via Web Interface`,
+            content: btoa(unescape(encodeURIComponent(content))), // Encode UTF8
+            sha: sha
+        };
+
+        const res = await githubApi(`contents/${filename}`, 'PUT', body);
+        if(loader) loader.style.display = 'none';
+        
+        if(res.ok) alert('נשמר בהצלחה!');
+        else alert('שגיאה בשמירה. וודא שהטוקן תקין.');
+    }
+
+    async function loadConfig() {
+        const configData = await loadFile('config.json');
+        if(configData) {
+            const config = JSON.parse(configData.content);
+            document.getElementById('apiUser').value = config.user || '';
+            document.getElementById('apiPass').value = config.pass || '';
+            document.getElementById('alertEmail').value = config.email || '';
+        }
+    }
+
+    async function saveConfig() {
+        const config = {
+            user: document.getElementById('apiUser').value,
+            pass: document.getElementById('apiPass').value,
+            email: document.getElementById('alertEmail').value
+        };
+        await saveFile('config.json', JSON.stringify(config, null, 2));
+    }
+
+    async function runManualCheck() {
+        const icc = document.getElementById('manualSimInput').value;
+        if(!icc) return alert('הכנס מספר סים');
+        
+        document.getElementById('loader_check').style.display = 'inline-block';
+        
+        const res = await githubApi('actions/workflows/manual_check.yml/dispatches', 'POST', {
+            ref: 'main',
+            inputs: { icc_number: icc }
+        });
+
+        document.getElementById('loader_check').style.display = 'none';
+        if(res.ok) {
+            alert('הבדיקה נשלחה! התוצאה תופיע בלוג בעוד כדקה. (יש לרענן את העמוד בגיטהאב כדי לראות את הלוג, או להוסיף כאן מנגנון קריאת לוגים מתקדם)');
+        } else {
+            alert('שגיאה בהפעלת הבדיקה');
+        }
+    }
+
+    async function loadReport() {
+        const res = await loadFile('last_report.txt');
+        if(res) document.getElementById('reportBox').innerText = res.content;
+        else document.getElementById('reportBox').innerText = 'עדיין לא נוצר דוח.';
+    }
+</script>
 </body>
 </html>
